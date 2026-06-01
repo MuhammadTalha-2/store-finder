@@ -15,9 +15,22 @@ export async function extractStoreInfo(url: string): Promise<StoreInfo> {
   const html = await res.text();
   const $ = cheerio.load(html);
 
+  const garbageWords = /Navigation|Chevron|Storefront|Account|Cart|SearchAccount|logoNavigation/i;
+
+  const rawTitle = $("title").text()
+    .split(/[|–\-—:·]/)[0]
+    .trim()
+    .slice(0, 60);
+  const cleanTitle =
+    rawTitle && !garbageWords.test(rawTitle) && rawTitle.length > 0
+      ? rawTitle
+      : null;
+
   const name =
     $('meta[property="og:site_name"]').attr("content") ||
-    $("title").text().split("|")[0].split("–")[0].split("-")[0].trim() ||
+    $('meta[name="application-name"]').attr("content") ||
+    cleanTitle ||
+    $('meta[property="og:title"]').attr("content") ||
     null;
 
   const language = $("html").attr("lang")?.split("-")[0] || null;
@@ -36,8 +49,49 @@ export async function extractStoreInfo(url: string): Promise<StoreInfo> {
   const currencyMatch = html.match(/"currency"\s*:\s*"([A-Z]{3})"/);
   if (!currency && currencyMatch) currency = currencyMatch[1];
 
-  const countryMatch = html.match(/"country_code"\s*:\s*"([A-Z]{2})"/);
-  if (countryMatch) country = countryMatch[1];
+  // 1. Shopify.country in page JS (e.g. Shopify.country = "US" or "country":"US")
+  const shopifyCountryAssign = html.match(/Shopify\.country\s*=\s*"([A-Z]{2})"/);
+  if (shopifyCountryAssign) country = shopifyCountryAssign[1];
+
+  if (!country) {
+    const shopifyCountryJson = html.match(/"country"\s*:\s*"([A-Z]{2})"/);
+    if (shopifyCountryJson) country = shopifyCountryJson[1];
+  }
+
+  // 2. Parse lang attribute from <html> tag (e.g. en-US, fr-FR)
+  if (!country) {
+    const langAttr = $("html").attr("lang");
+    if (langAttr) {
+      const langParts = langAttr.split("-");
+      if (langParts.length >= 2) {
+        const regionCode = langParts[langParts.length - 1].toUpperCase();
+        if (/^[A-Z]{2}$/.test(regionCode)) {
+          country = regionCode;
+        }
+      }
+    }
+  }
+
+  // 3. Map currency to country as last resort
+  if (!country && currency) {
+    const currencyToCountry: Record<string, string> = {
+      USD: "US", GBP: "GB", EUR: "DE", CAD: "CA", AUD: "AU",
+      INR: "IN", JPY: "JP", NZD: "NZ", BRL: "BR", MXN: "MX",
+      ZAR: "ZA", SGD: "SG", HKD: "HK", KRW: "KR", SEK: "SE",
+      NOK: "NO", DKK: "DK", CHF: "CH", PLN: "PL", CZK: "CZ",
+      ILS: "IL", AED: "AE", SAR: "SA", MYR: "MY", PHP: "PH",
+      THB: "TH", IDR: "ID", TWD: "TW", TRY: "TR", RUB: "RU",
+      NGN: "NG", EGP: "EG", PKR: "PK", BDT: "BD", VND: "VN",
+      CLP: "CL", COP: "CO", PEN: "PE", ARS: "AR",
+    };
+    country = currencyToCountry[currency] || null;
+  }
+
+  // 4. Existing country_code pattern (keep as additional source)
+  if (!country) {
+    const countryCodeMatch = html.match(/"country_code"\s*:\s*"([A-Z]{2})"/);
+    if (countryCodeMatch) country = countryCodeMatch[1];
+  }
 
   const myshopifyMatch = html.match(/([\w-]+)\.myshopify\.com/);
   if (myshopifyMatch) myshopifyDomain = `${myshopifyMatch[1]}.myshopify.com`;
