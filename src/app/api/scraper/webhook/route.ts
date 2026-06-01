@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { scrapeJobs } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 const webhookSchema = z.object({
-  jobId: z.number(),
   status: z.enum(["completed", "failed"]),
-  storesDiscovered: z.number().optional(),
-  storesUpdated: z.number().optional(),
-  storesFailed: z.number().optional(),
   errorMessage: z.string().optional(),
 });
 
@@ -24,17 +20,24 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const data = webhookSchema.parse(body);
 
-  await db
-    .update(scrapeJobs)
-    .set({
-      status: data.status,
-      completedAt: new Date(),
-      storesDiscovered: data.storesDiscovered,
-      storesUpdated: data.storesUpdated,
-      storesFailed: data.storesFailed,
-      errorMessage: data.errorMessage,
-    })
-    .where(eq(scrapeJobs.id, data.jobId));
+  // Find the most recent "running" scrape job and mark it done
+  const [latestJob] = await db
+    .select({ id: scrapeJobs.id })
+    .from(scrapeJobs)
+    .where(eq(scrapeJobs.status, "running"))
+    .orderBy(desc(scrapeJobs.startedAt))
+    .limit(1);
+
+  if (latestJob) {
+    await db
+      .update(scrapeJobs)
+      .set({
+        status: data.status,
+        completedAt: new Date(),
+        errorMessage: data.errorMessage,
+      })
+      .where(eq(scrapeJobs.id, latestJob.id));
+  }
 
   return NextResponse.json({ ok: true });
 }

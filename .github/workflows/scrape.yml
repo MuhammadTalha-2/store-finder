@@ -6,9 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "Max stores to process"
+        description: "Max stores to discover and process"
         required: false
         default: "1000"
+      source:
+        description: "Discovery source (all, seeds, app-reviews)"
+        required: false
+        default: "all"
 
 jobs:
   scrape:
@@ -26,16 +30,26 @@ jobs:
         working-directory: scraper
         run: npm ci
 
+      - name: Seed known apps (if needed)
+        working-directory: scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx tsx src/seed-apps.ts
+
       - name: Run full scraper pipeline
         working-directory: scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npx tsx src/index.ts full --limit ${{ github.event.inputs.limit || '1000' }}
+        run: |
+          LIMIT="${{ github.event.inputs.limit || '1000' }}"
+          SOURCE="${{ github.event.inputs.source || 'all' }}"
+          echo "Running scraper: source=$SOURCE, limit=$LIMIT"
+          npx tsx src/index.ts full --limit "$LIMIT" --source "$SOURCE"
 
-      - name: Notify webhook on success
-        if: success()
+      - name: Notify app on success
+        if: success() && vars.APP_URL != ''
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          APP_URL: ${{ vars.APP_URL }}
           SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
         run: |
           curl -s -X POST "${APP_URL}/api/scraper/webhook" \
@@ -43,13 +57,13 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{"status": "completed"}' || true
 
-      - name: Notify webhook on failure
-        if: failure()
+      - name: Notify app on failure
+        if: failure() && vars.APP_URL != ''
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          APP_URL: ${{ vars.APP_URL }}
           SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
         run: |
           curl -s -X POST "${APP_URL}/api/scraper/webhook" \
             -H "Authorization: Bearer ${SCRAPER_SECRET}" \
             -H "Content-Type: application/json" \
-            -d '{"status": "failed", "errorMessage": "GitHub Actions job failed"}' || true
+            -d '{"status": "failed", "errorMessage": "GitHub Actions job failed — check workflow logs"}' || true

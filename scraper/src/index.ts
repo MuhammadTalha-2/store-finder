@@ -258,18 +258,19 @@ async function runExtract(args: Record<string, string>) {
 
 async function runFull(args: Record<string, string>) {
   const limit = parseInt(args.limit || "200");
+  const source = args.source || "all";
 
   console.log("Running full pipeline (discover + extract)");
 
   // Create a scrape job record
   const [job] = await db
     .insert(scrapeJobs)
-    .values({ source: "cli-full", metadata: { limit } })
+    .values({ source: `cli-full:${source}`, metadata: { limit, source } })
     .returning();
 
   try {
     // Discover
-    await runDiscover({ source: "all", limit: String(limit) });
+    await runDiscover({ source, limit: String(limit) });
 
     // Extract
     await runExtract({ "batch-size": String(limit) });
