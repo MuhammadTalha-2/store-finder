@@ -1,0 +1,55 @@
+name: Shopify Store Scraper
+
+on:
+  schedule:
+    - cron: "0 3 * * 1,4" # Monday and Thursday at 3am UTC
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max stores to process"
+        required: false
+        default: "1000"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install scraper dependencies
+        working-directory: scraper
+        run: npm ci
+
+      - name: Run full scraper pipeline
+        working-directory: scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx tsx src/index.ts full --limit ${{ github.event.inputs.limit || '1000' }}
+
+      - name: Notify webhook on success
+        if: success()
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
+        run: |
+          curl -s -X POST "${APP_URL}/api/scraper/webhook" \
+            -H "Authorization: Bearer ${SCRAPER_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{"status": "completed"}' || true
+
+      - name: Notify webhook on failure
+        if: failure()
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          SCRAPER_SECRET: ${{ secrets.SCRAPER_SECRET }}
+        run: |
+          curl -s -X POST "${APP_URL}/api/scraper/webhook" \
+            -H "Authorization: Bearer ${SCRAPER_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d '{"status": "failed", "errorMessage": "GitHub Actions job failed"}' || true

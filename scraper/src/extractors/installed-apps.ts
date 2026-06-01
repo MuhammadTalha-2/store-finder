@@ -1,0 +1,40 @@
+import { throttledFetch } from "../rate-limiter.js";
+import { APP_SIGNATURES, type AppSignature } from "../app-signatures.js";
+
+interface DetectedApp {
+  slug: string;
+  name: string;
+  confidence: number;
+}
+
+export async function extractInstalledApps(
+  url: string
+): Promise<DetectedApp[]> {
+  try {
+    const res = await throttledFetch(url, { retries: 1 });
+    const html = await res.text();
+
+    const detected: DetectedApp[] = [];
+
+    for (const sig of APP_SIGNATURES) {
+      let matchCount = 0;
+      for (const pattern of sig.patterns) {
+        if (pattern.test(html)) {
+          matchCount++;
+        }
+      }
+
+      if (matchCount > 0) {
+        detected.push({
+          slug: sig.slug,
+          name: sig.name,
+          confidence: Math.min(matchCount / sig.patterns.length, 1),
+        });
+      }
+    }
+
+    return detected;
+  } catch {
+    return [];
+  }
+}
