@@ -1,5 +1,4 @@
 import * as cheerio from "cheerio";
-import { throttledFetch } from "../rate-limiter.js";
 
 interface StoreInfo {
   name: string | null;
@@ -10,14 +9,14 @@ interface StoreInfo {
   myshopifyDomain: string | null;
 }
 
-export async function extractStoreInfo(url: string): Promise<StoreInfo> {
-  const res = await throttledFetch(url);
-  const html = await res.text();
+export function extractStoreInfo(html: string): StoreInfo {
   const $ = cheerio.load(html);
 
-  const garbageWords = /Navigation|Chevron|Storefront|Account|Cart|SearchAccount|logoNavigation/i;
+  const garbageWords =
+    /Navigation|Chevron|Storefront|Account|Cart|SearchAccount|logoNavigation/i;
 
-  const rawTitle = $("title").text()
+  const rawTitle = $("title")
+    .text()
     .split(/[|–\-—:·]/)[0]
     .trim()
     .slice(0, 60);
@@ -38,19 +37,22 @@ export async function extractStoreInfo(url: string): Promise<StoreInfo> {
   const metaDescription =
     $('meta[name="description"]').attr("content") || null;
 
-  // Extract currency from Shopify global object
   let currency: string | null = null;
   let country: string | null = null;
   let myshopifyDomain: string | null = null;
 
-  const shopifyMatch = html.match(/Shopify\.currency\s*=\s*{[^}]*"active"\s*:\s*"([A-Z]{3})"/);
+  const shopifyMatch = html.match(
+    /Shopify\.currency\s*=\s*{[^}]*"active"\s*:\s*"([A-Z]{3})"/
+  );
   if (shopifyMatch) currency = shopifyMatch[1];
 
   const currencyMatch = html.match(/"currency"\s*:\s*"([A-Z]{3})"/);
   if (!currency && currencyMatch) currency = currencyMatch[1];
 
-  // 1. Shopify.country in page JS (e.g. Shopify.country = "US" or "country":"US")
-  const shopifyCountryAssign = html.match(/Shopify\.country\s*=\s*"([A-Z]{2})"/);
+  // Country extraction — 4 fallbacks
+  const shopifyCountryAssign = html.match(
+    /Shopify\.country\s*=\s*"([A-Z]{2})"/
+  );
   if (shopifyCountryAssign) country = shopifyCountryAssign[1];
 
   if (!country) {
@@ -58,7 +60,6 @@ export async function extractStoreInfo(url: string): Promise<StoreInfo> {
     if (shopifyCountryJson) country = shopifyCountryJson[1];
   }
 
-  // 2. Parse lang attribute from <html> tag (e.g. en-US, fr-FR)
   if (!country) {
     const langAttr = $("html").attr("lang");
     if (langAttr) {
@@ -72,7 +73,6 @@ export async function extractStoreInfo(url: string): Promise<StoreInfo> {
     }
   }
 
-  // 3. Map currency to country as last resort
   if (!country && currency) {
     const currencyToCountry: Record<string, string> = {
       USD: "US", GBP: "GB", EUR: "DE", CAD: "CA", AUD: "AU",
@@ -87,14 +87,14 @@ export async function extractStoreInfo(url: string): Promise<StoreInfo> {
     country = currencyToCountry[currency] || null;
   }
 
-  // 4. Existing country_code pattern (keep as additional source)
   if (!country) {
     const countryCodeMatch = html.match(/"country_code"\s*:\s*"([A-Z]{2})"/);
     if (countryCodeMatch) country = countryCodeMatch[1];
   }
 
   const myshopifyMatch = html.match(/([\w-]+)\.myshopify\.com/);
-  if (myshopifyMatch) myshopifyDomain = `${myshopifyMatch[1]}.myshopify.com`;
+  if (myshopifyMatch)
+    myshopifyDomain = `${myshopifyMatch[1]}.myshopify.com`;
 
   return { name, language, country, currency, metaDescription, myshopifyDomain };
 }

@@ -1,4 +1,5 @@
 import { db } from "./db.js";
+import { throttledFetch } from "./rate-limiter.js";
 import { validateShopifyStore } from "./store-validator.js";
 import { extractStoreInfo } from "./extractors/store-info.js";
 import { extractContactEmail } from "./extractors/contact-email.js";
@@ -16,10 +17,8 @@ import {
   timestamp,
   real,
   jsonb,
-  uniqueIndex,
-  index,
 } from "drizzle-orm/pg-core";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, or, isNull, lt } from "drizzle-orm";
 
 // Inline schema references (avoids importing from Next.js src)
 const stores = pgTable("stores", {
@@ -91,9 +90,10 @@ async function main() {
       break;
     default:
       console.log("Usage:");
-      console.log("  npx tsx src/index.ts discover --source app-reviews --limit 500");
-      console.log("  npx tsx src/index.ts extract --batch-size 50");
+      console.log("  npx tsx src/index.ts discover --source all --limit 500");
+      console.log("  npx tsx src/index.ts extract --batch-size 50 --stale-days 7");
       console.log("  npx tsx src/index.ts full --limit 200");
+      console.log("  npx tsx src/index.ts extract --force true --batch-size 100");
       process.exit(0);
   }
 }
@@ -109,6 +109,8 @@ function parseArgs(argv: string[]): Record<string, string> {
   }
   return result;
 }
+
+// ---------- Discover ----------
 
 async function runDiscover(args: Record<string, string>) {
   const source = args.source || "all";
@@ -128,7 +130,9 @@ async function runDiscover(args: Record<string, string>) {
     case "all": {
       const seeds = loadSeedUrls();
       console.log(`  Loaded ${seeds.length} seed URLs`);
-      const fromReviews = await discoverFromAppStoreReviews(Math.max(0, limit - seeds.length));
+      const fromReviews = await discoverFromAppStoreReviews(
+        Math.max(0, limit - seeds.length)
+      );
       const combined = new Set([...seeds, ...fromReviews]);
       urls = Array.from(combined).slice(0, limit);
       break;
@@ -138,6 +142,9 @@ async function runDiscover(args: Record<string, string>) {
       process.exit(1);
   }
 
+  // Normalize URLs
+  urls = urls.map(normalizeUrl);
+
   console.log(`\nDiscovered ${urls.length} candidate URLs`);
   console.log("Validating...");
 
@@ -146,11 +153,16 @@ async function runDiscover(args: Record<string, string>) {
 
   for (const url of urls) {
     try {
-      // Check if already in DB
+      // Check if already in DB (also check without/with www)
       const existing = await db
         .select({ id: stores.id })
         .from(stores)
-        .where(eq(stores.url, url))
+        .where(
+          or(
+            eq(stores.url, url),
+            eq(stores.url, toggleWww(url))
+          )
+        )
         .limit(1);
 
       if (existing.length > 0) {
@@ -162,49 +174,101 @@ async function runDiscover(args: Record<string, string>) {
       if (result.isShopify) {
         await db.insert(stores).values({ url }).onConflictDoNothing();
         validated++;
-        console.log(`  ✓ ${url} (signals: ${result.signals.join(", ")})`);
+        console.log(
+          `  ✓ ${url} (signals: ${result.signals.join(", ")})`
+        );
       } else {
-        console.log(`  ✗ ${url} (not Shopify, signals: ${result.signals.join(", ")})`);
+        console.log(
+          `  ✗ ${url} (not Shopify, signals: ${result.signals.join(", ")})`
+        );
       }
     } catch (err) {
       console.log(`  ! ${url} — error: ${err}`);
     }
   }
 
-  console.log(`\nValidated: ${validated}, Skipped (existing): ${skipped}, Total candidates: ${urls.length}`);
+  console.log(
+    `\nValidated: ${validated}, Skipped (existing): ${skipped}, Total candidates: ${urls.length}`
+  );
 }
+
+// ---------- Extract ----------
 
 async function runExtract(args: Record<string, string>) {
   const batchSize = parseInt(args["batch-size"] || "50");
+  const staleDays = parseInt(args["stale-days"] || "7");
+  const force = args.force === "true";
 
-  console.log(`Extracting data for stores (batch: ${batchSize})`);
+  console.log(
+    `Extracting data (batch: ${batchSize}, stale: ${staleDays}d, force: ${force})`
+  );
 
-  // Get stores that need extraction (no lastScrapedAt or old)
+  const staleDate = new Date();
+  staleDate.setDate(staleDate.getDate() - staleDays);
+
+  // Build WHERE clause — incremental by default
+  let whereClause;
+  if (force) {
+    // Force: re-scrape all active stores
+    whereClause = eq(stores.isActive, true);
+  } else {
+    // Incremental: only stores that are stale or never scraped
+    whereClause = and(
+      eq(stores.isActive, true),
+      or(
+        isNull(stores.lastScrapedAt),
+        lt(stores.lastScrapedAt, staleDate)
+      )
+    );
+  }
+
   const storesToExtract = await db
     .select()
     .from(stores)
-    .where(eq(stores.isActive, true))
-    .orderBy(stores.lastScrapedAt)
+    .where(whereClause)
+    .orderBy(
+      // Prioritize: never scraped first, then missing email, then oldest
+      sql`
+        CASE
+          WHEN ${stores.lastScrapedAt} IS NULL THEN 0
+          WHEN ${stores.contactEmail} IS NULL THEN 1
+          WHEN ${stores.country} IS NULL THEN 2
+          ELSE 3
+        END,
+        ${stores.lastScrapedAt} ASC NULLS FIRST
+      `
+    )
     .limit(batchSize);
 
-  console.log(`Found ${storesToExtract.length} stores to process`);
+  console.log(`Found ${storesToExtract.length} stores to process\n`);
 
   let updated = 0;
   let failed = 0;
 
   for (const store of storesToExtract) {
-    console.log(`\nProcessing: ${store.url}`);
+    console.log(`Processing: ${store.url}`);
 
     try {
-      const [info, contact, products, apps] = await Promise.all([
-        extractStoreInfo(store.url),
-        extractContactEmail(store.url),
+      // ── Fetch homepage ONCE ──
+      const homepageRes = await throttledFetch(store.url, { retries: 1 });
+      const homepageHtml = await homepageRes.text();
+
+      // ── Extract everything from the single HTML fetch ──
+      const info = extractStoreInfo(homepageHtml);
+      const apps = extractInstalledApps(homepageHtml);
+
+      // ── These still make their own requests (different pages/APIs) ──
+      const [contact, products] = await Promise.all([
+        extractContactEmail(store.url, homepageHtml),
         extractProductCount(store.url),
-        extractInstalledApps(store.url),
       ]);
 
-      const category = await classifyCategory(store.url, info.metaDescription);
+      const category = await classifyCategory(
+        store.url,
+        info.metaDescription
+      );
 
+      // ── Save store data ──
       await db
         .update(stores)
         .set({
@@ -225,27 +289,36 @@ async function runExtract(args: Record<string, string>) {
         })
         .where(eq(stores.id, store.id));
 
-      // Save detected apps
-      for (const app of apps) {
-        const [knownApp] = await db
-          .select({ id: knownApps.id })
-          .from(knownApps)
-          .where(eq(knownApps.slug, app.slug))
-          .limit(1);
+      // ── Save detected apps ──
+      if (apps.length > 0) {
+        // Clear old app detections for this store before re-inserting
+        await db
+          .delete(storeApps)
+          .where(eq(storeApps.storeId, store.id));
 
-        if (knownApp) {
-          await db
-            .insert(storeApps)
-            .values({
-              storeId: store.id,
-              appId: knownApp.id,
-              confidence: app.confidence,
-            })
-            .onConflictDoNothing();
+        for (const app of apps) {
+          const [knownApp] = await db
+            .select({ id: knownApps.id })
+            .from(knownApps)
+            .where(eq(knownApps.slug, app.slug))
+            .limit(1);
+
+          if (knownApp) {
+            await db
+              .insert(storeApps)
+              .values({
+                storeId: store.id,
+                appId: knownApp.id,
+                confidence: app.confidence,
+              })
+              .onConflictDoNothing();
+          }
         }
       }
 
-      console.log(`  ✓ ${info.name || "unnamed"} | ${products.productCount} products | ${apps.length} apps | email: ${contact.email || "none"} | category: ${category}`);
+      console.log(
+        `  ✓ ${info.name || "unnamed"} | ${products.productCount} products | ${apps.length} apps | ${contact.email || "no email"} | ${info.country || "??"} | ${category}`
+      );
       updated++;
     } catch (err) {
       console.log(`  ✗ Error: ${err}`);
@@ -254,7 +327,10 @@ async function runExtract(args: Record<string, string>) {
   }
 
   console.log(`\nDone — Updated: ${updated}, Failed: ${failed}`);
+  return { updated, failed };
 }
+
+// ---------- Full pipeline ----------
 
 async function runFull(args: Record<string, string>) {
   const limit = parseInt(args.limit || "200");
@@ -272,8 +348,11 @@ async function runFull(args: Record<string, string>) {
     // Discover
     await runDiscover({ source, limit: String(limit) });
 
-    // Extract
-    await runExtract({ "batch-size": String(limit) });
+    // Extract — force on full runs so new stores get processed
+    const result = await runExtract({
+      "batch-size": String(limit),
+      "stale-days": "7",
+    });
 
     // Update job
     const [totalStores] = await db
@@ -286,6 +365,8 @@ async function runFull(args: Record<string, string>) {
         status: "completed",
         completedAt: new Date(),
         storesDiscovered: totalStores.count,
+        storesUpdated: result?.updated ?? 0,
+        storesFailed: result?.failed ?? 0,
       })
       .where(eq(scrapeJobs.id, job.id));
 
@@ -302,6 +383,30 @@ async function runFull(args: Record<string, string>) {
 
     console.error("Pipeline failed:", err);
     process.exit(1);
+  }
+}
+
+// ---------- Helpers ----------
+
+function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    // Remove trailing slash, lowercase hostname
+    return `${u.protocol}//${u.hostname.toLowerCase()}`;
+  } catch {
+    return url;
+  }
+}
+
+function toggleWww(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.hostname.startsWith("www.")) {
+      return `${u.protocol}//${u.hostname.slice(4)}`;
+    }
+    return `${u.protocol}//www.${u.hostname}`;
+  } catch {
+    return url;
   }
 }
 

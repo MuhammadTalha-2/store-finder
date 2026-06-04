@@ -23,15 +23,19 @@ function extractEmails(text: string): string[] {
       !email.endsWith("@shopify.com") &&
       !email.endsWith("@example.com") &&
       !email.endsWith("@sentry.io") &&
+      !email.endsWith("@sentry-next.wixpress.com") &&
       !email.includes("wixpress") &&
+      !email.endsWith(".png") &&
+      !email.endsWith(".jpg") &&
       email.length < 100
   );
 }
 
 export async function extractContactEmail(
-  url: string
+  url: string,
+  homepageHtml: string
 ): Promise<ContactResult> {
-  // Try /pages/contact first
+  // 1. Try /pages/contact first (separate fetch — this is a different page)
   try {
     const contactUrl = new URL("/pages/contact", url).toString();
     const res = await throttledFetch(contactUrl, { retries: 0 });
@@ -46,15 +50,15 @@ export async function extractContactEmail(
     // Page not available
   }
 
-  // Try homepage footer
-  try {
-    const res = await throttledFetch(url, { retries: 0 });
-    const html = await res.text();
-    const $ = cheerio.load(html);
+  // 2. Use the already-fetched homepage HTML for mailto + footer
+  {
+    const $ = cheerio.load(homepageHtml);
 
     // Check mailto links
     const mailtoLinks = $('a[href^="mailto:"]')
-      .map((_, el) => $(el).attr("href")?.replace("mailto:", "").split("?")[0])
+      .map((_, el) =>
+        $(el).attr("href")?.replace("mailto:", "").split("?")[0]
+      )
       .get()
       .filter((e): e is string => !!e);
 
@@ -73,15 +77,13 @@ export async function extractContactEmail(
     }
 
     // Check full page as fallback
-    const allEmails = extractEmails(html);
+    const allEmails = extractEmails(homepageHtml);
     if (allEmails.length > 0) {
       return { email: allEmails[0], source: "page_body" };
     }
-  } catch {
-    // Page not available
   }
 
-  // Try privacy policy
+  // 3. Try privacy policy (separate fetch)
   try {
     const policyUrl = new URL("/policies/privacy-policy", url).toString();
     const res = await throttledFetch(policyUrl, { retries: 0 });
