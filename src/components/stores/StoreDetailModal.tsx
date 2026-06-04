@@ -18,12 +18,29 @@ import {
   Clock,
   Copy,
   Check,
+  Target,
+  AlertTriangle,
+  Flame,
 } from "lucide-react";
+import {
+  APP_CATEGORY_LABELS,
+  OUR_APP_CATEGORIES,
+  CORE_CATEGORIES,
+} from "@/lib/app-gaps";
+import {
+  getLeadScoreLabel,
+  getLeadScoreColor,
+  type LeadScoreBreakdown,
+} from "@/lib/lead-score";
 import type { Store } from "@/lib/db/schema";
 import { useState } from "react";
 
 interface StoreWithApps extends Store {
   installedApps: string[];
+  missingCategories?: string[];
+  gapScore?: number;
+  leadScore?: number;
+  leadScoreBreakdown?: LeadScoreBreakdown;
 }
 
 interface StoreDetailModalProps {
@@ -74,6 +91,14 @@ export function StoreDetailModal({
           <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">
             {store.metaDescription}
           </p>
+        )}
+
+        {/* Lead Score */}
+        {store.leadScore != null && store.leadScoreBreakdown && (
+          <LeadScoreCard
+            score={store.leadScore}
+            breakdown={store.leadScoreBreakdown}
+          />
         )}
 
         {/* Key stats grid */}
@@ -174,6 +199,114 @@ export function StoreDetailModal({
           )}
         </div>
 
+        {/* Tech Stack Gaps (Opportunities) */}
+        {store.missingCategories && store.missingCategories.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <Target className="h-3.5 w-3.5 text-orange-500" />
+              <p className="text-xs font-medium text-muted-foreground">
+                Tech Stack Gaps
+              </p>
+              {store.gapScore != null && (
+                <Badge
+                  variant={
+                    store.gapScore >= 60
+                      ? "destructive"
+                      : store.gapScore >= 30
+                        ? "default"
+                        : "secondary"
+                  }
+                  className="text-[10px] px-1.5 py-0 ml-auto"
+                >
+                  Gap Score: {store.gapScore}
+                </Badge>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {/* Our apps — highest priority */}
+              {store.missingCategories.some((c) =>
+                OUR_APP_CATEGORIES.has(c)
+              ) && (
+                <div>
+                  <p className="text-[10px] font-semibold text-destructive uppercase tracking-wide mb-0.5 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    Pitch Our Apps
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {store.missingCategories
+                      .filter((c) => OUR_APP_CATEGORIES.has(c))
+                      .map((cat) => (
+                        <Badge
+                          key={cat}
+                          variant="destructive"
+                          className="text-xs"
+                        >
+                          {APP_CATEGORY_LABELS[cat] || cat}
+                        </Badge>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {/* Core gaps */}
+              {store.missingCategories.some(
+                (c) =>
+                  CORE_CATEGORIES.has(c) && !OUR_APP_CATEGORIES.has(c)
+              ) && (
+                <div>
+                  <p className="text-[10px] font-medium text-orange-600 uppercase tracking-wide mb-0.5">
+                    Missing Core Categories
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {store.missingCategories
+                      .filter(
+                        (c) =>
+                          CORE_CATEGORIES.has(c) &&
+                          !OUR_APP_CATEGORIES.has(c)
+                      )
+                      .map((cat) => (
+                        <Badge
+                          key={cat}
+                          variant="outline"
+                          className="text-xs text-orange-600 border-orange-200"
+                        >
+                          {APP_CATEGORY_LABELS[cat] || cat}
+                        </Badge>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {/* Other gaps */}
+              {store.missingCategories.some(
+                (c) =>
+                  !CORE_CATEGORIES.has(c) && !OUR_APP_CATEGORIES.has(c)
+              ) && (
+                <div>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">
+                    Other Gaps
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {store.missingCategories
+                      .filter(
+                        (c) =>
+                          !CORE_CATEGORIES.has(c) &&
+                          !OUR_APP_CATEGORIES.has(c)
+                      )
+                      .map((cat) => (
+                        <Badge
+                          key={cat}
+                          variant="outline"
+                          className="text-xs"
+                        >
+                          {APP_CATEGORY_LABELS[cat] || cat}
+                        </Badge>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Myshopify domain + timestamps */}
         <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t">
           {store.myshopifyDomain && <span>{store.myshopifyDomain}</span>}
@@ -219,6 +352,72 @@ function StatCard({
         <span className="text-[11px]">{label}</span>
       </div>
       <p className="text-sm font-semibold">{value}</p>
+    </div>
+  );
+}
+
+function LeadScoreCard({
+  score,
+  breakdown,
+}: {
+  score: number;
+  breakdown: LeadScoreBreakdown;
+}) {
+  const label = getLeadScoreLabel(score);
+  const colors = getLeadScoreColor(score);
+
+  const components = [
+    { label: "Email", value: breakdown.email, max: 20 },
+    { label: "App Gaps", value: breakdown.appGaps, max: 25 },
+    { label: "Products", value: breakdown.products, max: 15 },
+    { label: "Country", value: breakdown.country, max: 15 },
+    { label: "Maturity", value: breakdown.maturity, max: 10 },
+    { label: "Category", value: breakdown.categoryFit, max: 10 },
+    { label: "Blog", value: breakdown.blog, max: 5 },
+  ];
+
+  return (
+    <div className={`rounded-lg border ${colors.border} ${colors.bg} p-3`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Flame className={`h-4 w-4 ${colors.text}`} />
+          <span className={`text-sm font-semibold ${colors.text}`}>
+            Lead Score
+          </span>
+        </div>
+        <span className={`text-lg font-bold ${colors.text}`}>
+          {score}
+          <span className="text-xs font-normal ml-0.5">/100</span>
+          <span className="text-xs font-medium ml-1.5 opacity-75">
+            {label}
+          </span>
+        </span>
+      </div>
+      {/* Score breakdown bars */}
+      <div className="space-y-1">
+        {components.map((comp) => (
+          <div key={comp.label} className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground w-14 text-right shrink-0">
+              {comp.label}
+            </span>
+            <div className="flex-1 h-1.5 bg-white/50 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  comp.value / comp.max >= 0.7
+                    ? "bg-green-500"
+                    : comp.value / comp.max >= 0.4
+                      ? "bg-yellow-500"
+                      : "bg-gray-300"
+                }`}
+                style={{ width: `${(comp.value / comp.max) * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-muted-foreground w-8 shrink-0">
+              {comp.value}/{comp.max}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

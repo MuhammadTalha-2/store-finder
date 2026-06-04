@@ -21,5 +21,18 @@ export default async function StoresPage() {
     .map((c) => c.country)
     .filter((c): c is string => c !== null);
 
-  return <StoresClient knownApps={apps} availableCountries={availableCountries} />;
+  // Get unique app categories for gap filter
+  const categoryRows = await db
+    .selectDistinct({ category: knownApps.category })
+    .from(knownApps)
+    .orderBy(knownApps.category);
+  const appCategories = categoryRows.map((r) => r.category);
+
+  return (
+    <StoresClient
+      knownApps={apps}
+      availableCountries={availableCountries}
+      appCategories={appCategories}
+    />
+  );
 }

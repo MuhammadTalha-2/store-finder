@@ -14,8 +14,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { X, Search } from "lucide-react";
+import { X, Search, Target, Flame } from "lucide-react";
+import { APP_CATEGORY_LABELS, OUR_APP_CATEGORIES } from "@/lib/app-gaps";
 import { useState } from "react";
+
+const LEAD_SCORE_PRESETS = [
+  { label: "Any", value: "" },
+  { label: "40+ Cool", value: "40" },
+  { label: "60+ Warm", value: "60" },
+  { label: "80+ Hot", value: "80" },
+];
 
 const PRODUCT_PRESETS = [
   { label: "Any", value: "" },
@@ -27,11 +35,13 @@ const PRODUCT_PRESETS = [
 interface StoreFiltersProps {
   knownApps: { slug: string; name: string; category: string }[];
   availableCountries: string[];
+  appCategories?: string[];
 }
 
 export function StoreFilters({
   knownApps,
   availableCountries,
+  appCategories = [],
 }: StoreFiltersProps) {
   const { getFilter, setFilter, clearAll } = useFilters();
   const [searchInput, setSearchInput] = useState(getFilter("search") || "");
@@ -42,6 +52,8 @@ export function StoreFilters({
   const minProducts = getFilter("minProducts") || "";
   const hasApp = getFilter("hasApp") || "";
   const missingApp = getFilter("missingApp") || "";
+  const missingAppCategory = getFilter("missingAppCategory") || "";
+  const minLeadScore = getFilter("minLeadScore") || "";
 
   const hasActiveFilters =
     activeCategory ||
@@ -50,6 +62,8 @@ export function StoreFilters({
     minProducts ||
     hasApp ||
     missingApp ||
+    missingAppCategory ||
+    minLeadScore ||
     searchInput;
 
   return (
@@ -153,6 +167,27 @@ export function StoreFilters({
       </div>
 
       <div className="space-y-2">
+        <Label className="text-xs flex items-center gap-1">
+          <Flame className="h-3 w-3 text-red-500" />
+          Min Lead Score
+        </Label>
+        <div className="flex flex-wrap gap-1.5">
+          {LEAD_SCORE_PRESETS.map((preset) => (
+            <Badge
+              key={preset.value}
+              variant={minLeadScore === preset.value ? "default" : "outline"}
+              className="cursor-pointer"
+              onClick={() =>
+                setFilter("minLeadScore", preset.value || null)
+              }
+            >
+              {preset.label}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
         <Label className="text-xs">Has App (installed)</Label>
         <Select
           value={hasApp}
@@ -188,6 +223,37 @@ export function StoreFilters({
             {knownApps.map((app) => (
               <SelectItem key={app.slug} value={app.slug}>
                 {app.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Tech Stack Gap Filter */}
+      <div className="space-y-2">
+        <Label className="text-xs flex items-center gap-1">
+          <Target className="h-3 w-3 text-orange-500" />
+          Missing App Category
+        </Label>
+        <Select
+          value={missingAppCategory}
+          onValueChange={(v) =>
+            setFilter("missingAppCategory", v === "none" ? null : v)
+          }
+        >
+          <SelectTrigger className="h-8 text-sm">
+            <SelectValue placeholder="Any category" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Any category</SelectItem>
+            {appCategories.map((cat) => (
+              <SelectItem key={cat} value={cat}>
+                <span className="flex items-center gap-1.5">
+                  {OUR_APP_CATEGORIES.has(cat) && (
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500" />
+                  )}
+                  {APP_CATEGORY_LABELS[cat] || cat}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>

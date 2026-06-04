@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { stores, storeApps, knownApps } from "@/lib/db/schema";
 import { storeFiltersSchema } from "@/lib/filters";
+import { computeGaps, computeGapScore } from "@/lib/app-gaps";
+import { computeLeadScore, type LeadScoreBreakdown } from "@/lib/lead-score";
 import {
   and,
   asc,
@@ -12,6 +14,7 @@ import {
   ilike,
   inArray,
   isNotNull,
+  isNull,
   lte,
   notInArray,
   or,
@@ -101,6 +104,36 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Filter: stores missing ALL apps in a specific category
+  if (filters.missingAppCategory) {
+    const cats = filters.missingAppCategory.split(",");
+    // Find all app IDs in these categories
+    const appsInCats = await db
+      .select({ id: knownApps.id })
+      .from(knownApps)
+      .where(inArray(knownApps.category, cats));
+    const appIds = appsInCats.map((a) => a.id);
+
+    if (appIds.length > 0) {
+      // Stores that have ANY app in these categories
+      const storeIdsWithCatApps = db
+        .select({ storeId: storeApps.storeId })
+        .from(storeApps)
+        .where(inArray(storeApps.appId, appIds));
+
+      // We want stores NOT in that list
+      conditions.push(notInArray(stores.id, storeIdsWithCatApps));
+    }
+  }
+
+  // Only include scraped stores for gap analysis if sorting by gap_score or lead_score
+  if (filters.sort === "gap_score" || filters.sort === "lead_score") {
+    conditions.push(isNotNull(stores.lastScrapedAt));
+  }
+
+  // Filter by minimum lead score — applied post-query since lead score is computed
+  const minLeadScore = filters.minLeadScore;
+
   const where = and(...conditions);
 
   const sortColumn =
@@ -108,30 +141,54 @@ export async function GET(request: NextRequest) {
       ? stores.productCount
       : filters.sort === "name"
         ? stores.name
-        : stores.createdAt;
+        : filters.sort === "first_seen"
+          ? stores.firstSeenAt
+          : stores.createdAt;
 
   const orderFn = filters.order === "asc" ? asc : desc;
 
-  const [totalResult] = await db
-    .select({ count: count() })
-    .from(stores)
-    .where(where);
+  // When minLeadScore or lead_score/gap_score sort is active, we need to
+  // compute scores for all rows first, then filter/sort/paginate in-memory.
+  const needsPostQueryProcessing =
+    minLeadScore !== undefined ||
+    filters.sort === "lead_score" ||
+    filters.sort === "gap_score";
 
-  const rows = await db
-    .select()
-    .from(stores)
-    .where(where)
-    .orderBy(orderFn(sortColumn))
-    .limit(filters.limit)
-    .offset((filters.page - 1) * filters.limit);
+  let totalCount: number;
+  let rows: (typeof stores.$inferSelect)[];
+
+  if (needsPostQueryProcessing) {
+    // Fetch all matching rows (no limit/offset — we paginate after scoring)
+    rows = await db
+      .select()
+      .from(stores)
+      .where(where)
+      .orderBy(orderFn(sortColumn));
+    totalCount = rows.length; // will be adjusted after filtering
+  } else {
+    const [totalResult] = await db
+      .select({ count: count() })
+      .from(stores)
+      .where(where);
+    totalCount = totalResult.count;
+
+    rows = await db
+      .select()
+      .from(stores)
+      .where(where)
+      .orderBy(orderFn(sortColumn))
+      .limit(filters.limit)
+      .offset((filters.page - 1) * filters.limit);
+  }
 
   const storeIds = rows.map((s) => s.id);
-  let appsMap: Record<number, string[]> = {};
+  let appsMap: Record<number, { slug: string; category: string }[]> = {};
   if (storeIds.length > 0) {
     const appResults = await db
       .select({
         storeId: storeApps.storeId,
         appSlug: knownApps.slug,
+        appCategory: knownApps.category,
       })
       .from(storeApps)
       .innerJoin(knownApps, eq(storeApps.appId, knownApps.id))
@@ -139,19 +196,80 @@ export async function GET(request: NextRequest) {
 
     for (const row of appResults) {
       if (!appsMap[row.storeId]) appsMap[row.storeId] = [];
-      appsMap[row.storeId].push(row.appSlug);
+      appsMap[row.storeId].push({
+        slug: row.appSlug,
+        category: row.appCategory,
+      });
     }
   }
 
-  const storesWithApps = rows.map((store) => ({
-    ...store,
-    installedApps: appsMap[store.id] || [],
-  }));
+  // Fetch all known app categories for gap computation
+  const allCategoryRows = await db
+    .selectDistinct({ category: knownApps.category })
+    .from(knownApps);
+  const allCategories = allCategoryRows.map((r) => r.category);
+
+  let storesWithApps = rows.map((store) => {
+    const apps = appsMap[store.id] || [];
+    const installedCategories = new Set(apps.map((a) => a.category));
+    const missingCategories = computeGaps(installedCategories, allCategories);
+    const gapScore = computeGapScore(missingCategories);
+    const leadScore = computeLeadScore({
+      contactEmail: store.contactEmail,
+      productCount: store.productCount,
+      country: store.country,
+      category: store.category,
+      hasBlog: store.hasBlog,
+      firstSeenAt: store.firstSeenAt,
+      missingCategories,
+    });
+
+    return {
+      ...store,
+      installedApps: apps.map((a) => a.slug),
+      missingCategories,
+      gapScore,
+      leadScore: leadScore.total,
+      leadScoreBreakdown: leadScore,
+    };
+  });
+
+  // Apply min lead score filter (post-query since it's computed)
+  if (minLeadScore !== undefined) {
+    storesWithApps = storesWithApps.filter(
+      (s) => s.leadScore >= minLeadScore
+    );
+  }
+
+  // Sort by lead_score if requested (computed field, so sort post-query)
+  if (filters.sort === "lead_score") {
+    storesWithApps.sort((a, b) =>
+      filters.order === "desc"
+        ? b.leadScore - a.leadScore
+        : a.leadScore - b.leadScore
+    );
+  }
+
+  // Sort by gap_score if requested (also computed)
+  if (filters.sort === "gap_score") {
+    storesWithApps.sort((a, b) =>
+      filters.order === "desc"
+        ? b.gapScore - a.gapScore
+        : a.gapScore - b.gapScore
+    );
+  }
+
+  // When we did post-query processing, paginate in-memory
+  if (needsPostQueryProcessing) {
+    totalCount = storesWithApps.length;
+    const start = (filters.page - 1) * filters.limit;
+    storesWithApps = storesWithApps.slice(start, start + filters.limit);
+  }
 
   return NextResponse.json({
     stores: storesWithApps,
-    total: totalResult.count,
+    total: totalCount,
     page: filters.page,
-    totalPages: Math.ceil(totalResult.count / filters.limit),
+    totalPages: Math.ceil(totalCount / filters.limit),
   });
 }

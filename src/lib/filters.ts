@@ -12,6 +12,8 @@ export const storeFiltersSchema = z.object({
     .optional(),
   hasApp: z.string().optional(),
   missingApp: z.string().optional(),
+  missingAppCategory: z.string().optional(),
+  minLeadScore: z.coerce.number().optional(),
   search: z.string().optional(),
   sort: z.string().default("created_at"),
   order: z.enum(["asc", "desc"]).default("desc"),

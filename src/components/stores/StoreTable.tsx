@@ -12,12 +12,26 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Flame, Thermometer, Snowflake } from "lucide-react";
 import { StoreDetailModal } from "./StoreDetailModal";
+import {
+  APP_CATEGORY_LABELS,
+  OUR_APP_CATEGORIES,
+  CORE_CATEGORIES,
+} from "@/lib/app-gaps";
+import {
+  getLeadScoreLabel,
+  getLeadScoreColor,
+  type LeadScoreBreakdown,
+} from "@/lib/lead-score";
 import type { Store } from "@/lib/db/schema";
 
 interface StoreWithApps extends Store {
   installedApps: string[];
+  missingCategories?: string[];
+  gapScore?: number;
+  leadScore?: number;
+  leadScoreBreakdown?: LeadScoreBreakdown;
 }
 
 interface StoreTableProps {
@@ -72,12 +86,14 @@ export function StoreTable({
               <TableHead className="w-10">
                 <Checkbox checked={allSelected} onCheckedChange={onToggleAll} />
               </TableHead>
-              <TableHead className="w-[30%]">Store</TableHead>
-              <TableHead className="w-[12%]">Category</TableHead>
-              <TableHead className="w-[8%]">Country</TableHead>
-              <TableHead className="w-[8%] text-right">Products</TableHead>
-              <TableHead className="w-[22%]">Apps</TableHead>
-              <TableHead className="w-[20%]">Email</TableHead>
+              <TableHead className="w-[24%]">Store</TableHead>
+              <TableHead className="w-[8%]">Category</TableHead>
+              <TableHead className="w-[6%]">Country</TableHead>
+              <TableHead className="w-[6%] text-right">Products</TableHead>
+              <TableHead className="w-[7%] text-center">Score</TableHead>
+              <TableHead className="w-[14%]">Apps</TableHead>
+              <TableHead className="w-[18%]">Opportunities</TableHead>
+              <TableHead className="w-[12%]">Email</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -130,6 +146,13 @@ export function StoreTable({
                 <TableCell className="text-right text-sm">
                   {store.productCount ?? "—"}
                 </TableCell>
+                <TableCell className="text-center">
+                  {store.leadScore != null ? (
+                    <LeadScoreBadge score={store.leadScore} />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </TableCell>
                 <TableCell>
                   {store.installedApps.length > 0 ? (
                     <div className="flex flex-wrap gap-1">
@@ -153,6 +176,56 @@ export function StoreTable({
                   )}
                 </TableCell>
                 <TableCell>
+                  {store.missingCategories &&
+                  store.missingCategories.length > 0 ? (
+                    <div className="flex flex-wrap gap-0.5">
+                      {/* Show our app gaps first (highlighted) */}
+                      {store.missingCategories
+                        .filter((c) => OUR_APP_CATEGORIES.has(c))
+                        .slice(0, 2)
+                        .map((cat) => (
+                          <Badge
+                            key={cat}
+                            variant="destructive"
+                            className="text-[10px] px-1.5 py-0 cursor-default"
+                            title={`No ${APP_CATEGORY_LABELS[cat] || cat} app — pitch our app!`}
+                          >
+                            {APP_CATEGORY_LABELS[cat] || cat}
+                          </Badge>
+                        ))}
+                      {/* Then show core category gaps */}
+                      {store.missingCategories
+                        .filter(
+                          (c) =>
+                            !OUR_APP_CATEGORIES.has(c) &&
+                            CORE_CATEGORIES.has(c)
+                        )
+                        .slice(0, 2)
+                        .map((cat) => (
+                          <Badge
+                            key={cat}
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0 text-orange-600 border-orange-200"
+                          >
+                            {APP_CATEGORY_LABELS[cat] || cat}
+                          </Badge>
+                        ))}
+                      {/* Count remaining */}
+                      {store.missingCategories.length > 4 && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 cursor-default"
+                          title={`${store.missingCategories.length} total missing categories`}
+                        >
+                          +{store.missingCategories.length - 4}
+                        </Badge>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+                <TableCell>
                   {store.contactEmail ? (
                     <span className="text-xs truncate block max-w-full">
                       {store.contactEmail}
@@ -173,5 +246,22 @@ export function StoreTable({
         onClose={() => setSelectedStore(null)}
       />
     </>
+  );
+}
+
+function LeadScoreBadge({ score }: { score: number }) {
+  const label = getLeadScoreLabel(score);
+  const colors = getLeadScoreColor(score);
+  const Icon =
+    score >= 80 ? Flame : score >= 40 ? Thermometer : Snowflake;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${colors.bg} ${colors.text} ${colors.border}`}
+      title={`Lead Score: ${score}/100 (${label})`}
+    >
+      <Icon className="h-3 w-3" />
+      {score}
+    </span>
   );
 }

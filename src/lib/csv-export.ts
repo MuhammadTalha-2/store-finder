@@ -11,6 +11,9 @@ function escapeCell(value: string | null | undefined): string {
 
 interface StoreWithApps extends Store {
   installedApps: string[];
+  missingCategories?: string[];
+  gapScore?: number;
+  leadScore?: number;
 }
 
 const HEADERS = [
@@ -26,6 +29,9 @@ const HEADERS = [
   "Collection Count",
   "Has Blog",
   "Installed Apps",
+  "Missing Categories",
+  "Gap Score",
+  "Lead Score",
   "Last Scraped",
   "First Seen",
 ];
@@ -47,6 +53,9 @@ export function storesToCsv(stores: StoreWithApps[]): string {
       store.collectionCount?.toString(),
       store.hasBlog?.toString(),
       store.installedApps.join("; "),
+      store.missingCategories?.join("; "),
+      store.gapScore?.toString(),
+      store.leadScore?.toString(),
       store.lastScrapedAt?.toISOString(),
       store.firstSeenAt?.toISOString(),
     ];

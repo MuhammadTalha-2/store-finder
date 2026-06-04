@@ -16,13 +16,27 @@ import type { Store } from "@/lib/db/schema";
 interface StoresClientProps {
   knownApps: { slug: string; name: string; category: string }[];
   availableCountries: string[];
+  appCategories?: string[];
 }
 
 interface StoreWithApps extends Store {
   installedApps: string[];
+  missingCategories?: string[];
+  gapScore?: number;
+  leadScore?: number;
+  leadScoreBreakdown?: {
+    total: number;
+    email: number;
+    appGaps: number;
+    products: number;
+    country: number;
+    maturity: number;
+    categoryFit: number;
+    blog: number;
+  };
 }
 
-function StoresContent({ knownApps, availableCountries }: StoresClientProps) {
+function StoresContent({ knownApps, availableCountries, appCategories }: StoresClientProps) {
   const searchParams = useSearchParams();
   const { setPage } = useFilters();
   const [stores, setStores] = useState<StoreWithApps[]>([]);
@@ -101,6 +115,7 @@ function StoresContent({ knownApps, availableCountries }: StoresClientProps) {
           <StoreFilters
             knownApps={knownApps}
             availableCountries={availableCountries}
+            appCategories={appCategories}
           />
         </div>
         <div className="flex-1 space-y-4">
