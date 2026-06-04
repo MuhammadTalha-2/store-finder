@@ -5,14 +5,26 @@ on:
     - cron: "0 3 * * 1,4" # Monday and Thursday at 3am UTC
   workflow_dispatch:
     inputs:
+      mode:
+        description: "Scraper mode"
+        required: false
+        default: "full"
+        type: choice
+        options:
+          - full
+          - reviews-only
       limit:
         description: "Max stores to discover and process"
         required: false
         default: "1000"
       source:
-        description: "Discovery source (all, seeds, app-reviews)"
+        description: "Discovery source for full mode (all, seeds, app-reviews)"
         required: false
         default: "all"
+      review_pages:
+        description: "Pages per app for reviews mode (10 reviews/page)"
+        required: false
+        default: "20"
 
 jobs:
   scrape:
@@ -30,13 +42,31 @@ jobs:
         working-directory: scraper
         run: npm ci
 
+      # Playwright needs its browser binaries installed
+      - name: Install Playwright Chromium
+        if: github.event.inputs.mode == 'reviews-only' || github.event.inputs.mode == ''
+        working-directory: scraper
+        run: npx playwright install chromium --with-deps
+
       - name: Seed known apps (if needed)
         working-directory: scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: npx tsx src/seed-apps.ts
 
+      - name: Run review scraper (Playwright)
+        if: github.event.inputs.mode == 'reviews-only'
+        working-directory: scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          LIMIT="${{ github.event.inputs.limit || '1000' }}"
+          PAGES="${{ github.event.inputs.review_pages || '20' }}"
+          echo "Running review scraper: limit=$LIMIT, pages/app=$PAGES"
+          npx tsx src/index.ts discover-reviews --limit "$LIMIT" --pages "$PAGES"
+
       - name: Run full scraper pipeline
+        if: github.event.inputs.mode != 'reviews-only'
         working-directory: scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

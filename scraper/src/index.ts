@@ -9,6 +9,11 @@ import { classifyCategory } from "./extractors/category.js";
 import { discoverFromAppStoreReviews } from "./discovery/app-store-reviews.js";
 import { loadSeedUrls } from "./discovery/seed-urls.js";
 import {
+  discoverFromReviews,
+  storeNameToCandidateUrls,
+  type ReviewStoreInfo,
+} from "./discovery/review-scraper.js";
+import {
   pgTable,
   serial,
   text,
@@ -82,6 +87,9 @@ async function main() {
     case "discover":
       await runDiscover(args);
       break;
+    case "discover-reviews":
+      await runDiscoverReviews(args);
+      break;
     case "extract":
       await runExtract(args);
       break;
@@ -91,6 +99,7 @@ async function main() {
     default:
       console.log("Usage:");
       console.log("  npx tsx src/index.ts discover --source all --limit 500");
+      console.log("  npx tsx src/index.ts discover-reviews --pages 10 --limit 500");
       console.log("  npx tsx src/index.ts extract --batch-size 50 --stale-days 7");
       console.log("  npx tsx src/index.ts full --limit 200");
       console.log("  npx tsx src/index.ts extract --force true --batch-size 100");
@@ -190,6 +199,143 @@ async function runDiscover(args: Record<string, string>) {
   console.log(
     `\nValidated: ${validated}, Skipped (existing): ${skipped}, Total candidates: ${urls.length}`
   );
+}
+
+// ---------- Discover from Reviews (Playwright) ----------
+
+async function runDiscoverReviews(args: Record<string, string>) {
+  const maxPagesPerApp = parseInt(args.pages || "10");
+  const limit = parseInt(args.limit || "500");
+  const pageDelay = parseInt(args.delay || "2000");
+  const headless = args.headless !== "false";
+  const slugsArg = args.apps; // comma-separated slugs (optional)
+
+  console.log(
+    `Discovering stores from app reviews (Playwright)\n` +
+      `  Max pages/app: ${maxPagesPerApp}, Limit: ${limit}, Delay: ${pageDelay}ms\n`
+  );
+
+  // Create a scrape job record
+  const [job] = await db
+    .insert(scrapeJobs)
+    .values({
+      source: "cli-review-scraper",
+      metadata: { maxPagesPerApp, limit, pageDelay },
+    })
+    .returning();
+
+  try {
+    // Step 1: Scrape review pages with Playwright
+    const reviewStores = await discoverFromReviews({
+      appSlugs: slugsArg ? slugsArg.split(",") : undefined,
+      maxPagesPerApp,
+      limit,
+      pageDelay,
+      headless,
+    });
+
+    console.log(`\nExtracted ${reviewStores.length} store names from reviews`);
+
+    // Step 2: Convert store names → candidate myshopify URLs → validate
+    let validated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const store of reviewStores) {
+      const candidateUrls = storeNameToCandidateUrls(store.storeName);
+      if (candidateUrls.length === 0) {
+        failed++;
+        continue;
+      }
+
+      let found = false;
+      for (const url of candidateUrls) {
+        // Check if already in DB
+        const existing = await db
+          .select({ id: stores.id })
+          .from(stores)
+          .where(
+            or(eq(stores.url, url), eq(stores.url, toggleWww(url)))
+          )
+          .limit(1);
+
+        if (existing.length > 0) {
+          skipped++;
+          found = true;
+          break;
+        }
+
+        try {
+          const result = await validateShopifyStore(url);
+          if (result.isShopify) {
+            await db
+              .insert(stores)
+              .values({
+                url,
+                name: store.storeName,
+                country: store.country || null,
+              })
+              .onConflictDoNothing();
+
+            console.log(
+              `  ✓ ${store.storeName} → ${url} (signals: ${result.signals.join(", ")})`
+            );
+            validated++;
+            found = true;
+            break; // Stop trying other candidate URLs
+          }
+        } catch {
+          // Try next candidate URL
+        }
+      }
+
+      if (!found) {
+        console.log(`  ✗ ${store.storeName} — no valid Shopify URL found`);
+        failed++;
+      }
+    }
+
+    // Update job record
+    await db
+      .update(scrapeJobs)
+      .set({
+        status: "completed",
+        completedAt: new Date(),
+        storesDiscovered: validated,
+        storesUpdated: 0,
+        storesFailed: failed,
+        metadata: {
+          maxPagesPerApp,
+          limit,
+          pageDelay,
+          totalReviews: reviewStores.length,
+          validated,
+          skipped,
+          failed,
+        },
+      })
+      .where(eq(scrapeJobs.id, job.id));
+
+    console.log(
+      `\nReview discovery complete:` +
+        `\n  Store names found: ${reviewStores.length}` +
+        `\n  Validated & added: ${validated}` +
+        `\n  Already in DB:     ${skipped}` +
+        `\n  Not found:         ${failed}`
+    );
+  } catch (err) {
+    await db
+      .update(scrapeJobs)
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: err instanceof Error ? err.message : String(err),
+      })
+      .where(eq(scrapeJobs.id, job.id));
+
+    console.error("Review discovery failed:", err);
+    process.exit(1);
+  }
 }
 
 // ---------- Extract ----------
