@@ -6,6 +6,9 @@ import { extractContactEmail } from "./extractors/contact-email.js";
 import { extractProductCount } from "./extractors/product-count.js";
 import { extractInstalledApps } from "./extractors/installed-apps.js";
 import { classifyCategory } from "./extractors/category.js";
+import { extractSocialLinks } from "./extractors/social-links.js";
+import { extractThemeInfo } from "./extractors/theme-detection.js";
+import { extractAdPixels } from "./extractors/ad-pixels.js";
 import { discoverFromAppStoreReviews } from "./discovery/app-store-reviews.js";
 import { loadSeedUrls } from "./discovery/seed-urls.js";
 import {
@@ -41,6 +44,9 @@ const stores = pgTable("stores", {
   metaDescription: text("meta_description"),
   collectionCount: integer("collection_count"),
   hasBlog: boolean("has_blog"),
+  shopifyTheme: text("shopify_theme"),
+  socialLinks: jsonb("social_links"),
+  adPixels: jsonb("ad_pixels"),
   isActive: boolean("is_active").default(true).notNull(),
   lastScrapedAt: timestamp("last_scraped_at", { withTimezone: true }),
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
@@ -402,6 +408,9 @@ async function runExtract(args: Record<string, string>) {
       // ── Extract everything from the single HTML fetch ──
       const info = extractStoreInfo(homepageHtml);
       const apps = extractInstalledApps(homepageHtml);
+      const socialLinks = extractSocialLinks(homepageHtml);
+      const themeInfo = extractThemeInfo(homepageHtml);
+      const adPixels = extractAdPixels(homepageHtml);
 
       // ── These still make their own requests (different pages/APIs) ──
       const [contact, products] = await Promise.all([
@@ -430,6 +439,9 @@ async function runExtract(args: Record<string, string>) {
           collectionCount: products.collectionCount,
           hasBlog: products.hasBlog,
           category,
+          shopifyTheme: themeInfo.name,
+          socialLinks,
+          adPixels,
           lastScrapedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -462,8 +474,10 @@ async function runExtract(args: Record<string, string>) {
         }
       }
 
+      const socialCount = Object.values(socialLinks).filter(Boolean).length;
+      const pixelCount = Object.values(adPixels).filter(Boolean).length;
       console.log(
-        `  ✓ ${info.name || "unnamed"} | ${products.productCount} products | ${apps.length} apps | ${contact.email || "no email"} | ${info.country || "??"} | ${category}`
+        `  ✓ ${info.name || "unnamed"} | ${products.productCount} products | ${apps.length} apps | ${contact.email || "no email"} | ${info.country || "??"} | ${category} | theme:${themeInfo.name || "?"} | ${socialCount} socials | ${pixelCount} pixels`
       );
       updated++;
     } catch (err) {

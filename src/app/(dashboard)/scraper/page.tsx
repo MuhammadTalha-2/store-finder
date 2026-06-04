@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { format } from "date-fns";
 import { ScraperClient } from "./scraper-client";
+import { PartnersSync } from "@/components/scraper/PartnersSync";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,9 @@ export default async function ScraperPage() {
 
       {/* Client-side scraper controls */}
       <ScraperClient initialJobs={serializedJobs as any} />
+
+      {/* Partners API Sync — for admin-only app detection */}
+      <PartnersSync />
 
       {/* Job History — server-rendered */}
       <Card>

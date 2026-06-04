@@ -29,6 +29,9 @@ export const stores = pgTable(
     metaDescription: text("meta_description"),
     collectionCount: integer("collection_count"),
     hasBlog: boolean("has_blog"),
+    shopifyTheme: text("shopify_theme"),
+    socialLinks: jsonb("social_links"), // { facebook, instagram, twitter, tiktok, youtube, pinterest, linkedin, snapchat }
+    adPixels: jsonb("ad_pixels"), // { facebookPixelId, googleAnalyticsId, googleTagManagerId, tiktokPixelId, ... }
     isActive: boolean("is_active").default(true).notNull(),
     lastScrapedAt: timestamp("last_scraped_at", { withTimezone: true }),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
@@ -179,6 +182,36 @@ export const dailyStats = pgTable("daily_stats", {
   storesByCountry: jsonb("stores_by_country"),
 });
 
+/**
+ * Tracks confirmed installs of OUR apps (InvoiceForge, SubsExport, Track Your Traffic).
+ * These apps run in the Shopify Admin and can't be detected by storefront scraping.
+ * Data comes from Shopify Partners API sync or manual CSV import.
+ */
+export const confirmedInstalls = pgTable(
+  "confirmed_installs",
+  {
+    id: serial("id").primaryKey(),
+    storeId: integer("store_id")
+      .references(() => stores.id, { onDelete: "cascade" }),
+    shopifyDomain: text("shopify_domain").notNull(),
+    ourAppSlug: text("our_app_slug").notNull(), // invoiceforge | subsexport | track-your-traffic
+    source: text("source").notNull(), // partners-api | csv-import | manual
+    installedAt: timestamp("installed_at", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_confirmed_installs_unique").on(
+      table.shopifyDomain,
+      table.ourAppSlug
+    ),
+    index("idx_confirmed_installs_store").on(table.storeId),
+    index("idx_confirmed_installs_app").on(table.ourAppSlug),
+  ]
+);
+
 export type Store = typeof stores.$inferSelect;
 export type NewStore = typeof stores.$inferInsert;
 export type KnownApp = typeof knownApps.$inferSelect;
@@ -189,3 +222,4 @@ export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type ScrapeJob = typeof scrapeJobs.$inferSelect;
 export type DailyStat = typeof dailyStats.$inferSelect;
+export type ConfirmedInstall = typeof confirmedInstalls.$inferSelect;

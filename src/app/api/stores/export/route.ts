@@ -115,6 +115,8 @@ export async function GET(request: NextRequest) {
   const storesWithApps = rows.map((store) => ({
     ...store,
     installedApps: appsMap[store.id] || [],
+    socialLinks: store.socialLinks as Record<string, string | null> | null,
+    adPixels: store.adPixels as Record<string, string | null> | null,
   }));
 
   const csv = storesToCsv(storesWithApps);

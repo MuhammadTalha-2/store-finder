@@ -21,6 +21,11 @@ import {
   Target,
   AlertTriangle,
   Flame,
+  ShieldCheck,
+  Info,
+  Palette,
+  Share2,
+  Activity,
 } from "lucide-react";
 import {
   APP_CATEGORY_LABELS,
@@ -35,12 +40,37 @@ import {
 import type { Store } from "@/lib/db/schema";
 import { useState } from "react";
 
-interface StoreWithApps extends Store {
+export interface SocialLinks {
+  facebook?: string | null;
+  instagram?: string | null;
+  twitter?: string | null;
+  tiktok?: string | null;
+  youtube?: string | null;
+  pinterest?: string | null;
+  linkedin?: string | null;
+  snapchat?: string | null;
+}
+
+export interface AdPixels {
+  facebookPixelId?: string | null;
+  googleAnalyticsId?: string | null;
+  googleTagManagerId?: string | null;
+  tiktokPixelId?: string | null;
+  pinterestTagId?: string | null;
+  snapchatPixelId?: string | null;
+  microsoftClarityId?: string | null;
+  hotjarId?: string | null;
+}
+
+interface StoreWithApps extends Omit<Store, "socialLinks" | "adPixels"> {
   installedApps: string[];
+  confirmedOurApps?: string[];
   missingCategories?: string[];
   gapScore?: number;
   leadScore?: number;
   leadScoreBreakdown?: LeadScoreBreakdown;
+  socialLinks?: SocialLinks | null;
+  adPixels?: AdPixels | null;
 }
 
 interface StoreDetailModalProps {
@@ -137,6 +167,107 @@ export function StoreDetailModal({
           />
         </div>
 
+        {/* Shopify Theme */}
+        {store.shopifyTheme && (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+              <Palette className="h-3.5 w-3.5 text-purple-500" />
+              Shopify Theme
+            </p>
+            <Badge variant="outline" className="text-xs text-purple-700 border-purple-200 bg-purple-50">
+              {store.shopifyTheme}
+            </Badge>
+          </div>
+        )}
+
+        {/* Social Media Links */}
+        {store.socialLinks && Object.values(store.socialLinks).some(Boolean) && (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+              <Share2 className="h-3.5 w-3.5 text-blue-500" />
+              Social Media ({Object.values(store.socialLinks).filter(Boolean).length})
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {store.socialLinks.facebook && (
+                <SocialBadge platform="Facebook" url={store.socialLinks.facebook} color="bg-blue-100 text-blue-700 border-blue-200" />
+              )}
+              {store.socialLinks.instagram && (
+                <SocialBadge platform="Instagram" url={store.socialLinks.instagram} color="bg-pink-100 text-pink-700 border-pink-200" />
+              )}
+              {store.socialLinks.twitter && (
+                <SocialBadge platform="X / Twitter" url={store.socialLinks.twitter} color="bg-slate-100 text-slate-700 border-slate-200" />
+              )}
+              {store.socialLinks.tiktok && (
+                <SocialBadge platform="TikTok" url={store.socialLinks.tiktok} color="bg-gray-100 text-gray-700 border-gray-200" />
+              )}
+              {store.socialLinks.youtube && (
+                <SocialBadge platform="YouTube" url={store.socialLinks.youtube} color="bg-red-100 text-red-700 border-red-200" />
+              )}
+              {store.socialLinks.pinterest && (
+                <SocialBadge platform="Pinterest" url={store.socialLinks.pinterest} color="bg-red-50 text-red-600 border-red-200" />
+              )}
+              {store.socialLinks.linkedin && (
+                <SocialBadge platform="LinkedIn" url={store.socialLinks.linkedin} color="bg-sky-100 text-sky-700 border-sky-200" />
+              )}
+              {store.socialLinks.snapchat && (
+                <SocialBadge platform="Snapchat" url={store.socialLinks.snapchat} color="bg-yellow-100 text-yellow-700 border-yellow-200" />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Ad Pixels / Tracking */}
+        {store.adPixels && Object.values(store.adPixels).some(Boolean) && (
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+              <Activity className="h-3.5 w-3.5 text-emerald-500" />
+              Ad Pixels & Tracking ({Object.values(store.adPixels).filter(Boolean).length})
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {store.adPixels.facebookPixelId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.facebookPixelId}`}>
+                  FB Pixel
+                </Badge>
+              )}
+              {store.adPixels.googleAnalyticsId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.googleAnalyticsId}`}>
+                  {store.adPixels.googleAnalyticsId.startsWith("G-") ? "GA4" : "UA"}
+                </Badge>
+              )}
+              {store.adPixels.googleTagManagerId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.googleTagManagerId}`}>
+                  GTM
+                </Badge>
+              )}
+              {store.adPixels.tiktokPixelId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.tiktokPixelId}`}>
+                  TikTok Pixel
+                </Badge>
+              )}
+              {store.adPixels.pinterestTagId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.pinterestTagId}`}>
+                  Pinterest Tag
+                </Badge>
+              )}
+              {store.adPixels.snapchatPixelId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.snapchatPixelId}`}>
+                  Snap Pixel
+                </Badge>
+              )}
+              {store.adPixels.microsoftClarityId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.microsoftClarityId}`}>
+                  MS Clarity
+                </Badge>
+              )}
+              {store.adPixels.hotjarId && (
+                <Badge variant="outline" className="text-[10px] gap-1" title={`ID: ${store.adPixels.hotjarId}`}>
+                  Hotjar
+                </Badge>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Category */}
         {store.category && (
           <div>
@@ -181,10 +312,30 @@ export function StoreDetailModal({
           )}
         </div>
 
-        {/* Installed apps */}
+        {/* Confirmed our-app installs */}
+        {store.confirmedOurApps && store.confirmedOurApps.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-green-700 mb-1 flex items-center gap-1">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Our Apps (confirmed install)
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {store.confirmedOurApps.map((app) => (
+                <Badge
+                  key={app}
+                  className="text-xs bg-green-100 text-green-700 border-green-200"
+                >
+                  {app}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Installed apps (detected via storefront scraping) */}
         <div>
           <p className="text-xs font-medium text-muted-foreground mb-1">
-            Installed Apps ({store.installedApps.length})
+            Detected Apps ({store.installedApps.length})
           </p>
           {store.installedApps.length > 0 ? (
             <div className="flex flex-wrap gap-1">
@@ -195,8 +346,12 @@ export function StoreDetailModal({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">No apps detected</p>
+            <p className="text-sm text-muted-foreground">No storefront apps detected</p>
           )}
+          <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-0.5">
+            <Info className="h-2.5 w-2.5" />
+            Only apps with storefront scripts can be detected. Admin-only apps require Partners API sync.
+          </p>
         </div>
 
         {/* Tech Stack Gaps (Opportunities) */}
@@ -230,7 +385,7 @@ export function StoreDetailModal({
                 <div>
                   <p className="text-[10px] font-semibold text-destructive uppercase tracking-wide mb-0.5 flex items-center gap-1">
                     <AlertTriangle className="h-3 w-3" />
-                    Pitch Our Apps
+                    No Detected App — Pitch Ours
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {store.missingCategories
@@ -353,6 +508,29 @@ function StatCard({
       </div>
       <p className="text-sm font-semibold">{value}</p>
     </div>
+  );
+}
+
+function SocialBadge({
+  platform,
+  url,
+  color,
+}: {
+  platform: string;
+  url: string;
+  color: string;
+}) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium hover:opacity-80 transition-opacity ${color}`}
+    >
+      {platform}
+      <ExternalLink className="h-2.5 w-2.5" />
+    </a>
   );
 }
 

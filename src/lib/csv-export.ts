@@ -9,11 +9,13 @@ function escapeCell(value: string | null | undefined): string {
   return str;
 }
 
-interface StoreWithApps extends Store {
+interface StoreWithApps extends Omit<Store, "socialLinks" | "adPixels"> {
   installedApps: string[];
   missingCategories?: string[];
   gapScore?: number;
   leadScore?: number;
+  socialLinks?: Record<string, string | null> | null;
+  adPixels?: Record<string, string | null> | null;
 }
 
 const HEADERS = [
@@ -28,6 +30,9 @@ const HEADERS = [
   "Product Count",
   "Collection Count",
   "Has Blog",
+  "Shopify Theme",
+  "Social Links",
+  "Ad Pixels",
   "Installed Apps",
   "Missing Categories",
   "Gap Score",
@@ -52,6 +57,19 @@ export function storesToCsv(stores: StoreWithApps[]): string {
       store.productCount?.toString(),
       store.collectionCount?.toString(),
       store.hasBlog?.toString(),
+      store.shopifyTheme,
+      store.socialLinks
+        ? Object.entries(store.socialLinks)
+            .filter(([, v]) => v)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join("; ")
+        : "",
+      store.adPixels
+        ? Object.entries(store.adPixels)
+            .filter(([, v]) => v)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join("; ")
+        : "",
       store.installedApps.join("; "),
       store.missingCategories?.join("; "),
       store.gapScore?.toString(),

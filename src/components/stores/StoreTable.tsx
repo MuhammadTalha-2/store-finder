@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink, Flame, Thermometer, Snowflake } from "lucide-react";
+import { ExternalLink, Flame, Thermometer, Snowflake, ShieldCheck, Palette, Share2 } from "lucide-react";
 import { StoreDetailModal } from "./StoreDetailModal";
 import {
   APP_CATEGORY_LABELS,
@@ -26,12 +26,17 @@ import {
 } from "@/lib/lead-score";
 import type { Store } from "@/lib/db/schema";
 
-interface StoreWithApps extends Store {
+import type { SocialLinks, AdPixels } from "./StoreDetailModal";
+
+interface StoreWithApps extends Omit<Store, "socialLinks" | "adPixels"> {
   installedApps: string[];
+  confirmedOurApps?: string[];
   missingCategories?: string[];
   gapScore?: number;
   leadScore?: number;
   leadScoreBreakdown?: LeadScoreBreakdown;
+  socialLinks?: SocialLinks | null;
+  adPixels?: AdPixels | null;
 }
 
 interface StoreTableProps {
@@ -114,12 +119,12 @@ export function StoreTable({
                     <div className="font-medium text-sm truncate">
                       {store.name || "Unknown"}
                     </div>
-                    <div className="truncate">
+                    <div className="flex items-center gap-1.5">
                       <a
                         href={store.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground truncate"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {store.url
@@ -127,6 +132,24 @@ export function StoreTable({
                           .replace(/\/$/, "")}
                         <ExternalLink className="h-3 w-3 shrink-0" />
                       </a>
+                      {/* Theme + Social indicators */}
+                      {store.shopifyTheme && (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[9px] text-purple-600 shrink-0"
+                          title={`Theme: ${store.shopifyTheme}`}
+                        >
+                          <Palette className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+                      {store.socialLinks && Object.values(store.socialLinks).some(Boolean) && (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-[9px] text-blue-500 shrink-0"
+                          title={`${Object.values(store.socialLinks).filter(Boolean).length} social profiles`}
+                        >
+                          <Share2 className="h-2.5 w-2.5" />
+                          {Object.values(store.socialLinks).filter(Boolean).length}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </TableCell>
@@ -154,26 +177,53 @@ export function StoreTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  {store.installedApps.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {store.installedApps.slice(0, 3).map((app) => (
+                  <div className="flex flex-wrap gap-1">
+                    {/* Confirmed our-app installs (from Partners API/CSV) */}
+                    {store.confirmedOurApps &&
+                      store.confirmedOurApps.map((app) => (
                         <Badge
-                          key={app}
-                          variant="secondary"
-                          className="text-xs truncate max-w-[80px]"
+                          key={`confirmed-${app}`}
+                          className="text-[10px] px-1 py-0 bg-green-100 text-green-700 border-green-200 inline-flex items-center gap-0.5"
+                          title={`${app} — confirmed install (Partners API)`}
                         >
+                          <ShieldCheck className="h-2.5 w-2.5" />
                           {app}
                         </Badge>
                       ))}
-                      {store.installedApps.length > 3 && (
-                        <Badge variant="secondary" className="text-xs">
-                          +{store.installedApps.length - 3}
-                        </Badge>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">None</span>
-                  )}
+                    {/* Scraped storefront apps */}
+                    {store.installedApps.length > 0 ? (
+                      <>
+                        {store.installedApps
+                          .slice(
+                            0,
+                            3 - (store.confirmedOurApps?.length || 0)
+                          )
+                          .map((app) => (
+                            <Badge
+                              key={app}
+                              variant="secondary"
+                              className="text-xs truncate max-w-[80px]"
+                            >
+                              {app}
+                            </Badge>
+                          ))}
+                        {store.installedApps.length >
+                          3 - (store.confirmedOurApps?.length || 0) && (
+                          <Badge variant="secondary" className="text-xs">
+                            +
+                            {store.installedApps.length -
+                              (3 - (store.confirmedOurApps?.length || 0))}
+                          </Badge>
+                        )}
+                      </>
+                    ) : (
+                      !store.confirmedOurApps?.length && (
+                        <span className="text-xs text-muted-foreground">
+                          None
+                        </span>
+                      )
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   {store.missingCategories &&
@@ -188,7 +238,7 @@ export function StoreTable({
                             key={cat}
                             variant="destructive"
                             className="text-[10px] px-1.5 py-0 cursor-default"
-                            title={`No ${APP_CATEGORY_LABELS[cat] || cat} app — pitch our app!`}
+                            title={`No detected ${APP_CATEGORY_LABELS[cat] || cat} app — opportunity to pitch`}
                           >
                             {APP_CATEGORY_LABELS[cat] || cat}
                           </Badge>

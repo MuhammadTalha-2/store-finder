@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { stores, storeApps, knownApps } from "@/lib/db/schema";
+import { stores, storeApps, knownApps, confirmedInstalls } from "@/lib/db/schema";
+import { OUR_APPS } from "@/lib/partners-api";
 import { storeFiltersSchema } from "@/lib/filters";
 import { computeGaps, computeGapScore } from "@/lib/app-gaps";
 import { computeLeadScore, type LeadScoreBreakdown } from "@/lib/lead-score";
@@ -209,9 +210,48 @@ export async function GET(request: NextRequest) {
     .from(knownApps);
   const allCategories = allCategoryRows.map((r) => r.category);
 
+  // Fetch confirmed installs of our apps for these stores
+  // This covers admin-only apps that can't be detected by storefront scraping
+  let confirmedMap: Record<number, Set<string>> = {}; // storeId → Set of our app categories
+  if (storeIds.length > 0) {
+    const confirmedRows = await db
+      .select({
+        storeId: confirmedInstalls.storeId,
+        ourAppSlug: confirmedInstalls.ourAppSlug,
+      })
+      .from(confirmedInstalls)
+      .where(
+        and(
+          inArray(confirmedInstalls.storeId, storeIds),
+          eq(confirmedInstalls.isActive, true)
+        )
+      );
+
+    // Map our app slugs to their categories
+    const ourAppCategoryMap = new Map<string, string>(
+      OUR_APPS.map((a) => [a.slug, a.category])
+    );
+
+    for (const row of confirmedRows) {
+      if (row.storeId == null) continue;
+      if (!confirmedMap[row.storeId]) confirmedMap[row.storeId] = new Set();
+      const cat = ourAppCategoryMap.get(row.ourAppSlug);
+      if (cat) confirmedMap[row.storeId].add(cat);
+    }
+  }
+
   let storesWithApps = rows.map((store) => {
     const apps = appsMap[store.id] || [];
     const installedCategories = new Set(apps.map((a) => a.category));
+
+    // Merge confirmed installs (admin-only apps) into installed categories
+    const confirmedCategories = confirmedMap[store.id];
+    if (confirmedCategories) {
+      for (const cat of confirmedCategories) {
+        installedCategories.add(cat);
+      }
+    }
+
     const missingCategories = computeGaps(installedCategories, allCategories);
     const gapScore = computeGapScore(missingCategories);
     const leadScore = computeLeadScore({
@@ -224,9 +264,17 @@ export async function GET(request: NextRequest) {
       missingCategories,
     });
 
+    // Build confirmed apps list for UI
+    const confirmedOurApps = confirmedCategories
+      ? OUR_APPS.filter((a) => confirmedCategories.has(a.category)).map(
+          (a) => a.slug
+        )
+      : [];
+
     return {
       ...store,
       installedApps: apps.map((a) => a.slug),
+      confirmedOurApps, // admin-only apps confirmed via Partners API/CSV
       missingCategories,
       gapScore,
       leadScore: leadScore.total,

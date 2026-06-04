@@ -19,8 +19,9 @@ interface StoresClientProps {
   appCategories?: string[];
 }
 
-interface StoreWithApps extends Store {
+interface StoreWithApps extends Omit<Store, "socialLinks" | "adPixels"> {
   installedApps: string[];
+  confirmedOurApps?: string[];
   missingCategories?: string[];
   gapScore?: number;
   leadScore?: number;
@@ -34,6 +35,8 @@ interface StoreWithApps extends Store {
     categoryFit: number;
     blog: number;
   };
+  socialLinks?: Record<string, string | null> | null;
+  adPixels?: Record<string, string | null> | null;
 }
 
 function StoresContent({ knownApps, availableCountries, appCategories }: StoresClientProps) {
