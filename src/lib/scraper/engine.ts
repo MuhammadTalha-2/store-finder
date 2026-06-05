@@ -413,24 +413,12 @@ export async function processStore(
   const storeInfo = extractStoreInfo(homepageHtml);
   const detectedApps = extractInstalledApps(homepageHtml, knownApps);
 
-  if (mode === "quick") {
-    // Quick mode: email from homepage only, skip product count
-    const contact = extractContactEmailFromHtml(homepageHtml);
-    const category = classifyCategory(storeInfo.metaDescription);
-    return {
-      storeInfo,
-      detectedApps,
-      contact,
-      productCount: 0,
-      collectionCount: null,
-      hasBlog: false,
-      category,
-    };
-  }
-
-  // Full mode: extra fetches for email + products
+  // Always fetch product count — it's a single fast API call
+  // Quick mode: email from homepage only; Full mode: deep email search
   const [contact, products] = await Promise.all([
-    extractContactEmailFull(storeUrl, homepageHtml),
+    mode === "quick"
+      ? extractContactEmailFromHtml(homepageHtml)
+      : extractContactEmailFull(storeUrl, homepageHtml),
     extractProductCount(storeUrl),
   ]);
 

@@ -246,7 +246,7 @@ async function processScanBatch(
         metaDescription: extracted.storeInfo.metaDescription,
         contactEmail: extracted.contact.email,
         emailSource: extracted.contact.source,
-        productCount: mode === "full" ? extracted.productCount : store.productCount,
+        productCount: extracted.productCount || store.productCount,
         collectionCount: extracted.collectionCount,
         hasBlog: extracted.hasBlog,
         category: extracted.category,
