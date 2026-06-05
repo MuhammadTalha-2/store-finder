@@ -13,7 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Search } from "lucide-react";
+import Image from "next/image";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -46,9 +46,13 @@ export default function LoginPage() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader className="text-center">
-        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Search className="h-6 w-6" />
-        </div>
+        <Image
+          src="/logo.svg"
+          alt="Store Finder"
+          width={48}
+          height={48}
+          className="mx-auto mb-2 rounded-lg"
+        />
         <CardTitle className="text-2xl">Store Finder</CardTitle>
         <CardDescription>
           Sign in to access the Shopify store discovery dashboard

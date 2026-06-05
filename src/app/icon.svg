@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#eef2ff"/>
+      <stop offset="100%" stop-color="#c7d2fe"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+  <!-- Magnifying glass lens (circle) -->
+  <circle cx="224" cy="216" r="120" fill="url(#lens)" stroke="#fff" stroke-width="14" opacity="0.95"/>
+  <!-- Storefront inside lens -->
+  <!-- Awning -->
+  <path d="M164 196 h120 l-8 32 h-104 z" fill="#6366f1" opacity="0.85"/>
+  <!-- Awning scallops -->
+  <path d="M156 228 q15 14 30 0 q15 14 30 0 q15 14 30 0 q15 14 30 0" fill="none" stroke="#4f46e5" stroke-width="5" stroke-linecap="round"/>
+  <!-- Store body -->
+  <rect x="172" y="228" width="104" height="56" rx="2" fill="#4338ca" opacity="0.35"/>
+  <!-- Door -->
+  <rect x="212" y="248" width="24" height="36" rx="3" fill="#4338ca" opacity="0.6"/>
+  <!-- Window left -->
+  <rect x="180" y="240" width="24" height="20" rx="2" fill="#fff" opacity="0.5"/>
+  <!-- Window right -->
+  <rect x="244" y="240" width="24" height="20" rx="2" fill="#fff" opacity="0.5"/>
+  <!-- Magnifying glass handle -->
+  <line x1="310" y1="306" x2="400" y2="396" stroke="#fff" stroke-width="36" stroke-linecap="round"/>
+  <line x1="310" y1="306" x2="400" y2="396" stroke="#c7d2fe" stroke-width="18" stroke-linecap="round" opacity="0.4"/>
+</svg>

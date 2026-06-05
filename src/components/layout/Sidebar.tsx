@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -9,7 +10,6 @@ import {
   List,
   Mail,
   FileText,
-  Search,
   Bot,
 } from "lucide-react";
 
@@ -28,9 +28,13 @@ export function Sidebar() {
   return (
     <aside className="hidden w-56 shrink-0 border-r bg-muted/20 md:block">
       <div className="flex h-14 items-center gap-2 border-b px-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Search className="h-4 w-4" />
-        </div>
+        <Image
+          src="/logo.svg"
+          alt="Store Finder"
+          width={32}
+          height={32}
+          className="rounded-md"
+        />
         <span className="font-semibold">Store Finder</span>
       </div>
       <nav className="flex flex-col gap-1 p-3">
