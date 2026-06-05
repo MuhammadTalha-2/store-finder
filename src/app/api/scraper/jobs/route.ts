@@ -19,6 +19,7 @@ import {
   sql,
   count,
 } from "drizzle-orm";
+import { DISCOVERABLE_APPS } from "@/lib/scraper/discover";
 
 export const dynamic = "force-dynamic";
 
@@ -223,6 +224,47 @@ export async function POST(request: NextRequest) {
       job,
       totalTarget: queue.length,
       totalMatching: totalResult.count,
+    });
+  }
+
+  if (type === "discover") {
+    const {
+      appSlugs = DISCOVERABLE_APPS.map((a) => a.slug),
+      pagesPerApp = 3,
+      maxStores = 200,
+    } = body;
+
+    // Build the scrape queue: list of { slug, page } combos
+    const scrapeQueue: { slug: string; page: number }[] = [];
+    for (const slug of appSlugs) {
+      for (let p = 1; p <= pagesPerApp; p++) {
+        scrapeQueue.push({ slug, page: p });
+      }
+    }
+
+    const [job] = await db
+      .insert(scrapeJobs)
+      .values({
+        source: "web-discover",
+        status: "running",
+        metadata: {
+          type: "discover",
+          phase: "scrape", // "scrape" → "validate"
+          scrapeQueue,
+          scrapeCursor: 0,
+          candidateUrls: [] as string[],
+          validateCursor: 0,
+          maxStores,
+          mode: mode || "quick",
+        },
+        storesDiscovered: 0,
+      })
+      .returning();
+
+    return NextResponse.json({
+      job,
+      totalTarget: scrapeQueue.length,
+      phase: "scrape",
     });
   }
 

@@ -12,12 +12,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink, Flame, Thermometer, Snowflake, ShieldCheck, Palette, Share2 } from "lucide-react";
+import {
+  ExternalLink,
+  Flame,
+  Thermometer,
+  Snowflake,
+  ShieldCheck,
+  Copy,
+  CheckCheck,
+} from "lucide-react";
 import { StoreDetailModal } from "./StoreDetailModal";
 import {
   APP_CATEGORY_LABELS,
   OUR_APP_CATEGORIES,
-  CORE_CATEGORIES,
 } from "@/lib/app-gaps";
 import {
   getLeadScoreLabel,
@@ -84,21 +91,18 @@ export function StoreTable({
 
   return (
     <>
-      <div className="rounded-md border overflow-hidden">
-        <Table className="table-fixed w-full">
-          <TableHeader>
+      <div className="rounded-md border h-full overflow-auto [&_[data-slot=table-container]]:!overflow-visible">
+        <Table className="w-full">
+          <TableHeader className="sticky top-0 z-10 bg-background shadow-[0_1px_0_0] shadow-border">
             <TableRow>
               <TableHead className="w-10">
                 <Checkbox checked={allSelected} onCheckedChange={onToggleAll} />
               </TableHead>
-              <TableHead className="w-[24%]">Store</TableHead>
-              <TableHead className="w-[8%]">Category</TableHead>
-              <TableHead className="w-[6%]">Country</TableHead>
-              <TableHead className="w-[6%] text-right">Products</TableHead>
-              <TableHead className="w-[7%] text-center">Score</TableHead>
-              <TableHead className="w-[14%]">Apps</TableHead>
-              <TableHead className="w-[18%]">Opportunities</TableHead>
-              <TableHead className="w-[12%]">Email</TableHead>
+              <TableHead className="min-w-[240px]">Store</TableHead>
+              <TableHead className="w-[80px] text-center">Score</TableHead>
+              <TableHead className="min-w-[160px]">Apps</TableHead>
+              <TableHead className="min-w-[140px]">Opportunities</TableHead>
+              <TableHead className="min-w-[180px]">Email</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -108,14 +112,17 @@ export function StoreTable({
                 className="cursor-pointer hover:bg-muted/50"
                 onClick={() => setSelectedStore(store)}
               >
+                {/* Checkbox */}
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <Checkbox
                     checked={selectedIds.has(store.id)}
                     onCheckedChange={() => onToggleSelect(store.id)}
                   />
                 </TableCell>
+
+                {/* Store — name, URL, category + country merged */}
                 <TableCell>
-                  <div className="min-w-0">
+                  <div className="min-w-0 space-y-0.5">
                     <div className="font-medium text-sm truncate">
                       {store.name || "Unknown"}
                     </div>
@@ -124,7 +131,7 @@ export function StoreTable({
                         href={store.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground truncate"
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground truncate max-w-[200px]"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {store.url
@@ -132,43 +139,34 @@ export function StoreTable({
                           .replace(/\/$/, "")}
                         <ExternalLink className="h-3 w-3 shrink-0" />
                       </a>
-                      {/* Theme + Social indicators */}
-                      {store.shopifyTheme && (
-                        <span
-                          className="inline-flex items-center gap-0.5 text-[9px] text-purple-600 shrink-0"
-                          title={`Theme: ${store.shopifyTheme}`}
-                        >
-                          <Palette className="h-2.5 w-2.5" />
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {store.category && (
+                        <span className="text-[11px] text-muted-foreground capitalize">
+                          {store.category.replace(/-/g, " ")}
                         </span>
                       )}
-                      {store.socialLinks && Object.values(store.socialLinks).some(Boolean) && (
-                        <span
-                          className="inline-flex items-center gap-0.5 text-[9px] text-blue-500 shrink-0"
-                          title={`${Object.values(store.socialLinks).filter(Boolean).length} social profiles`}
-                        >
-                          <Share2 className="h-2.5 w-2.5" />
-                          {Object.values(store.socialLinks).filter(Boolean).length}
+                      {store.category && store.country && (
+                        <span className="text-muted-foreground/40">·</span>
+                      )}
+                      {store.country && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {store.country}
                         </span>
+                      )}
+                      {store.productCount != null && store.productCount > 0 && (
+                        <>
+                          <span className="text-muted-foreground/40">·</span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {store.productCount} products
+                          </span>
+                        </>
                       )}
                     </div>
                   </div>
                 </TableCell>
-                <TableCell>
-                  {store.category && (
-                    <Badge
-                      variant="outline"
-                      className="text-xs capitalize truncate max-w-full"
-                    >
-                      {store.category.replace(/-/g, " ")}
-                    </Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-sm">
-                  {store.country || "—"}
-                </TableCell>
-                <TableCell className="text-right text-sm">
-                  {store.productCount ?? "—"}
-                </TableCell>
+
+                {/* Lead Score */}
                 <TableCell className="text-center">
                   {store.leadScore != null ? (
                     <LeadScoreBadge score={store.leadScore} />
@@ -176,21 +174,21 @@ export function StoreTable({
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
+
+                {/* Apps — confirmed + detected, simplified */}
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
-                    {/* Confirmed our-app installs (from Partners API/CSV) */}
                     {store.confirmedOurApps &&
                       store.confirmedOurApps.map((app) => (
                         <Badge
                           key={`confirmed-${app}`}
-                          className="text-[10px] px-1 py-0 bg-green-100 text-green-700 border-green-200 inline-flex items-center gap-0.5"
-                          title={`${app} — confirmed install (Partners API)`}
+                          className="text-[10px] px-1.5 py-0 bg-green-100 text-green-700 border-green-200 inline-flex items-center gap-0.5"
+                          title={`${app} — confirmed install`}
                         >
                           <ShieldCheck className="h-2.5 w-2.5" />
                           {app}
                         </Badge>
                       ))}
-                    {/* Scraped storefront apps */}
                     {store.installedApps.length > 0 ? (
                       <>
                         {store.installedApps
@@ -202,14 +200,17 @@ export function StoreTable({
                             <Badge
                               key={app}
                               variant="secondary"
-                              className="text-xs truncate max-w-[80px]"
+                              className="text-[10px] px-1.5 py-0 truncate max-w-[90px]"
                             >
                               {app}
                             </Badge>
                           ))}
                         {store.installedApps.length >
                           3 - (store.confirmedOurApps?.length || 0) && (
-                          <Badge variant="secondary" className="text-xs">
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] px-1.5 py-0"
+                          >
                             +
                             {store.installedApps.length -
                               (3 - (store.confirmedOurApps?.length || 0))}
@@ -225,61 +226,45 @@ export function StoreTable({
                     )}
                   </div>
                 </TableCell>
+
+                {/* Opportunities — our app gaps only, simplified */}
                 <TableCell>
                   {store.missingCategories &&
-                  store.missingCategories.length > 0 ? (
-                    <div className="flex flex-wrap gap-0.5">
-                      {/* Show our app gaps first (highlighted) */}
+                  store.missingCategories.filter((c) =>
+                    OUR_APP_CATEGORIES.has(c)
+                  ).length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
                       {store.missingCategories
                         .filter((c) => OUR_APP_CATEGORIES.has(c))
-                        .slice(0, 2)
+                        .slice(0, 3)
                         .map((cat) => (
                           <Badge
                             key={cat}
                             variant="destructive"
                             className="text-[10px] px-1.5 py-0 cursor-default"
-                            title={`No detected ${APP_CATEGORY_LABELS[cat] || cat} app — opportunity to pitch`}
+                            title={`No ${APP_CATEGORY_LABELS[cat] || cat} app detected`}
                           >
                             {APP_CATEGORY_LABELS[cat] || cat}
                           </Badge>
                         ))}
-                      {/* Then show core category gaps */}
-                      {store.missingCategories
-                        .filter(
-                          (c) =>
-                            !OUR_APP_CATEGORIES.has(c) &&
-                            CORE_CATEGORIES.has(c)
-                        )
-                        .slice(0, 2)
-                        .map((cat) => (
-                          <Badge
-                            key={cat}
-                            variant="outline"
-                            className="text-[10px] px-1.5 py-0 text-orange-600 border-orange-200"
-                          >
-                            {APP_CATEGORY_LABELS[cat] || cat}
-                          </Badge>
-                        ))}
-                      {/* Count remaining */}
-                      {store.missingCategories.length > 4 && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] px-1.5 py-0 cursor-default"
-                          title={`${store.missingCategories.length} total missing categories`}
-                        >
-                          +{store.missingCategories.length - 4}
-                        </Badge>
-                      )}
                     </div>
+                  ) : store.missingCategories &&
+                    store.missingCategories.length > 0 ? (
+                    <span
+                      className="text-[11px] text-muted-foreground cursor-default"
+                      title={`${store.missingCategories.length} missing app categories (non-priority)`}
+                    >
+                      {store.missingCategories.length} gaps
+                    </span>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell>
+
+                {/* Email — with copy on hover */}
+                <TableCell onClick={(e) => e.stopPropagation()}>
                   {store.contactEmail ? (
-                    <span className="text-xs truncate block max-w-full">
-                      {store.contactEmail}
-                    </span>
+                    <EmailCell email={store.contactEmail} />
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}
@@ -298,6 +283,41 @@ export function StoreTable({
     </>
   );
 }
+
+// ─── Email cell with copy-on-hover ──────────────────────────────────────────
+
+function EmailCell({ email }: { email: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // fallback: do nothing
+    }
+  }
+
+  return (
+    <div className="group/email flex items-center gap-1 min-w-0">
+      <span className="text-xs truncate">{email}</span>
+      <button
+        className="opacity-0 group-hover/email:opacity-100 shrink-0 p-0.5 rounded hover:bg-muted transition-all"
+        onClick={handleCopy}
+        title="Copy email"
+      >
+        {copied ? (
+          <CheckCheck className="h-3 w-3 text-green-600" />
+        ) : (
+          <Copy className="h-3 w-3 text-muted-foreground" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ─── Lead score badge ───────────────────────────────────────────────────────
 
 function LeadScoreBadge({ score }: { score: number }) {
   const label = getLeadScoreLabel(score);

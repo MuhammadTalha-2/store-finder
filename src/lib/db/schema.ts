@@ -212,6 +212,48 @@ export const confirmedInstalls = pgTable(
   ]
 );
 
+/**
+ * Store Lists & Segments.
+ * Two types:
+ *   "manual"  — hand-picked stores via store_list_members
+ *   "smart"   — saved filter criteria, membership computed dynamically
+ */
+export const storeLists = pgTable("store_lists", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  color: text("color").default("#6366f1").notNull(), // hex color for UI badge
+  type: text("type").default("manual").notNull(), // "manual" | "smart"
+  filtersJson: jsonb("filters_json"), // only used for smart segments
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export const storeListMembers = pgTable(
+  "store_list_members",
+  {
+    id: serial("id").primaryKey(),
+    listId: integer("list_id")
+      .notNull()
+      .references(() => storeLists.id, { onDelete: "cascade" }),
+    storeId: integer("store_id")
+      .notNull()
+      .references(() => stores.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_store_list_members_unique").on(table.listId, table.storeId),
+    index("idx_store_list_members_list").on(table.listId),
+  ]
+);
+
 export type Store = typeof stores.$inferSelect;
 export type NewStore = typeof stores.$inferInsert;
 export type KnownApp = typeof knownApps.$inferSelect;
@@ -223,3 +265,6 @@ export type User = typeof users.$inferSelect;
 export type ScrapeJob = typeof scrapeJobs.$inferSelect;
 export type DailyStat = typeof dailyStats.$inferSelect;
 export type ConfirmedInstall = typeof confirmedInstalls.$inferSelect;
+export type StoreList = typeof storeLists.$inferSelect;
+export type NewStoreList = typeof storeLists.$inferInsert;
+export type StoreListMember = typeof storeListMembers.$inferSelect;

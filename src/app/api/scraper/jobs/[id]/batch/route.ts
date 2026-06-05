@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { scrapeJobs, stores, storeApps, knownApps } from "@/lib/db/schema";
-import { eq, or } from "drizzle-orm";
+import { eq, or, and, isNull, desc } from "drizzle-orm";
 import {
   validateShopifyUrl,
   processStore,
@@ -10,6 +10,7 @@ import {
   extractContactEmailFromHtml,
   classifyCategory,
 } from "@/lib/scraper/engine";
+import { scrapeReviewPage, validateCandidate as validateCandidateUrl } from "@/lib/scraper/discover";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10; // Vercel timeout hint
@@ -50,6 +51,8 @@ export async function POST(
       return await processImportBatch(job, metadata, cursor);
     } else if (jobType === "scan") {
       return await processScanBatch(job, metadata, cursor, mode);
+    } else if (jobType === "discover") {
+      return await processDiscoverBatch(job, metadata);
     }
     return NextResponse.json({ error: "Unknown job type" }, { status: 400 });
   } catch (err) {
@@ -311,6 +314,289 @@ async function processScanBatch(
       result,
     },
   });
+}
+
+// ---------- Discover Batch ----------
+
+async function processDiscoverBatch(
+  job: typeof scrapeJobs.$inferSelect,
+  metadata: Record<string, unknown>
+) {
+  const phase = (metadata.phase as string) || "scrape";
+  const scrapeQueue = (metadata.scrapeQueue as { slug: string; page: number }[]) || [];
+  const scrapeCursor = (metadata.scrapeCursor as number) || 0;
+  const candidateUrls = (metadata.candidateUrls as string[]) || [];
+  const validateCursor = (metadata.validateCursor as number) || 0;
+  const maxStores = (metadata.maxStores as number) || 200;
+  const mode = (metadata.mode as string) || "quick";
+
+  if (phase === "scrape") {
+    // Phase 1: Scrape one review page per batch call
+    if (scrapeCursor >= scrapeQueue.length) {
+      // Done scraping — transition to validate phase
+      // Deduplicate candidate URLs
+      const unique = [...new Set(candidateUrls)];
+
+      if (unique.length === 0) {
+        // No candidates found — complete job
+        await db
+          .update(scrapeJobs)
+          .set({ status: "completed", completedAt: new Date() })
+          .where(eq(scrapeJobs.id, job.id));
+
+        return NextResponse.json({
+          status: "completed",
+          phase: "scrape",
+          processed: scrapeQueue.length,
+          total: scrapeQueue.length,
+          candidatesFound: 0,
+          message: "No new store URLs discovered",
+        });
+      }
+
+      // Limit candidates to maxStores
+      const limitedCandidates = unique.slice(0, maxStores);
+
+      await db
+        .update(scrapeJobs)
+        .set({
+          metadata: {
+            ...metadata,
+            phase: "validate",
+            candidateUrls: limitedCandidates,
+            validateCursor: 0,
+          },
+        })
+        .where(eq(scrapeJobs.id, job.id));
+
+      return NextResponse.json({
+        status: "running",
+        phase: "validate",
+        message: `Found ${limitedCandidates.length} candidate URLs. Starting validation...`,
+        scrapeComplete: true,
+        totalCandidates: limitedCandidates.length,
+        processed: 0,
+        total: limitedCandidates.length,
+      });
+    }
+
+    // Scrape one review page
+    const item = scrapeQueue[scrapeCursor];
+    let newUrls: string[] = [];
+    let merchantNames: string[] = [];
+    let hasMore = false;
+
+    try {
+      const result = await scrapeReviewPage(item.slug, item.page);
+      newUrls = result.urls;
+      merchantNames = result.merchantNames;
+      hasMore = result.hasMore;
+    } catch {
+      // Failed to fetch this page — continue
+    }
+
+    const updatedCandidates = [...candidateUrls, ...newUrls];
+    const newScrapeCursor = scrapeCursor + 1;
+
+    await db
+      .update(scrapeJobs)
+      .set({
+        metadata: {
+          ...metadata,
+          scrapeCursor: newScrapeCursor,
+          candidateUrls: updatedCandidates,
+        },
+      })
+      .where(eq(scrapeJobs.id, job.id));
+
+    return NextResponse.json({
+      status: "running",
+      phase: "scrape",
+      processed: newScrapeCursor,
+      total: scrapeQueue.length,
+      currentApp: item.slug,
+      currentPage: item.page,
+      newUrlsFound: newUrls.length,
+      merchantNames,
+      totalCandidates: [...new Set(updatedCandidates)].length,
+      hasMore,
+    });
+  }
+
+  if (phase === "validate") {
+    // Phase 2: Validate 2 candidate URLs per batch call
+    const total = candidateUrls.length;
+    const BATCH_SIZE = 2;
+
+    if (validateCursor >= total) {
+      // All validated — complete discover job
+      await db
+        .update(scrapeJobs)
+        .set({ status: "completed", completedAt: new Date() })
+        .where(eq(scrapeJobs.id, job.id));
+
+      // Auto-create a follow-up scan job for unscraped stores
+      const discoverMode = (metadata.mode as string) || "quick";
+      const unscannedStores = await db
+        .select({ id: stores.id })
+        .from(stores)
+        .where(and(eq(stores.isActive, true), isNull(stores.lastScrapedAt)))
+        .orderBy(desc(stores.id))
+        .limit(500);
+
+      let followUpJobId: number | null = null;
+      let followUpTotal = 0;
+
+      if (unscannedStores.length > 0) {
+        const scanQueue = unscannedStores.map((s) => s.id);
+        const [scanJob] = await db
+          .insert(scrapeJobs)
+          .values({
+            source: "web-scan",
+            status: "running",
+            metadata: {
+              type: "scan",
+              mode: discoverMode === "full" ? "full" : "quick",
+              target: "unscraped",
+              queue: scanQueue,
+              cursor: 0,
+              autoFollowUp: true,
+            },
+            storesDiscovered: 0,
+          })
+          .returning();
+        followUpJobId = scanJob.id;
+        followUpTotal = scanQueue.length;
+      }
+
+      return NextResponse.json({
+        status: "completed",
+        phase: "validate",
+        processed: total,
+        total,
+        discovered: job.storesDiscovered,
+        failed: job.storesFailed,
+        followUpJobId,
+        followUpTotal,
+      });
+    }
+
+    const batch = candidateUrls.slice(validateCursor, validateCursor + BATCH_SIZE);
+    let discovered = 0;
+    let failed = 0;
+    const results: { url: string; valid: boolean; signals?: string[]; isNew?: boolean }[] = [];
+
+    for (const url of batch) {
+      try {
+        // Check if already exists (try both with/without www)
+        const existing = await db
+          .select({ id: stores.id })
+          .from(stores)
+          .where(or(eq(stores.url, url), eq(stores.url, toggleWww(url))))
+          .limit(1);
+
+        if (existing.length > 0) {
+          results.push({ url, valid: true, signals: ["already_exists"], isNew: false });
+          continue;
+        }
+
+        // Use the discover-specific validator for .myshopify.com candidates
+        const candidateResult = await validateCandidateUrl(url);
+        if (candidateResult) {
+          const storeUrl = candidateResult.url; // may be custom domain
+          // Also check the resolved URL isn't already in DB
+          const existingResolved = storeUrl !== url
+            ? await db
+                .select({ id: stores.id })
+                .from(stores)
+                .where(or(eq(stores.url, storeUrl), eq(stores.url, toggleWww(storeUrl))))
+                .limit(1)
+            : [];
+
+          if (existingResolved.length > 0) {
+            results.push({ url: storeUrl, valid: true, signals: ["already_exists"], isNew: false });
+          } else {
+            await db.insert(stores).values({ url: storeUrl }).onConflictDoNothing();
+            discovered++;
+            results.push({ url: storeUrl, valid: true, signals: candidateResult.signals, isNew: true });
+          }
+        } else {
+          failed++;
+          results.push({ url, valid: false, signals: ["not_shopify"] });
+        }
+      } catch {
+        failed++;
+        results.push({ url, valid: false, signals: ["error"] });
+      }
+    }
+
+    const newValidateCursor = validateCursor + batch.length;
+    const isComplete = newValidateCursor >= total;
+
+    await db
+      .update(scrapeJobs)
+      .set({
+        metadata: {
+          ...metadata,
+          validateCursor: newValidateCursor,
+        },
+        storesDiscovered: (job.storesDiscovered || 0) + discovered,
+        storesFailed: (job.storesFailed || 0) + failed,
+        ...(isComplete
+          ? { status: "completed", completedAt: new Date() }
+          : {}),
+      })
+      .where(eq(scrapeJobs.id, job.id));
+
+    // If validation just completed, auto-create follow-up scan job
+    let followUpJobId: number | null = null;
+    let followUpTotal = 0;
+
+    if (isComplete) {
+      const discoverMode = (metadata.mode as string) || "quick";
+      const unscannedStores = await db
+        .select({ id: stores.id })
+        .from(stores)
+        .where(and(eq(stores.isActive, true), isNull(stores.lastScrapedAt)))
+        .orderBy(desc(stores.id))
+        .limit(500);
+
+      if (unscannedStores.length > 0) {
+        const scanQueue = unscannedStores.map((s) => s.id);
+        const [scanJob] = await db
+          .insert(scrapeJobs)
+          .values({
+            source: "web-scan",
+            status: "running",
+            metadata: {
+              type: "scan",
+              mode: discoverMode === "full" ? "full" : "quick",
+              target: "unscraped",
+              queue: scanQueue,
+              cursor: 0,
+              autoFollowUp: true,
+            },
+            storesDiscovered: 0,
+          })
+          .returning();
+        followUpJobId = scanJob.id;
+        followUpTotal = scanQueue.length;
+      }
+    }
+
+    return NextResponse.json({
+      status: isComplete ? "completed" : "running",
+      phase: "validate",
+      processed: newValidateCursor,
+      total,
+      batchResults: results,
+      discovered: (job.storesDiscovered || 0) + discovered,
+      failed: (job.storesFailed || 0) + failed,
+      ...(isComplete ? { followUpJobId, followUpTotal } : {}),
+    });
+  }
+
+  return NextResponse.json({ error: "Unknown discover phase" }, { status: 400 });
 }
 
 // ---------- Helpers ----------

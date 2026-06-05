@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { stores, storeApps, knownApps, confirmedInstalls } from "@/lib/db/schema";
+import { stores, storeApps, knownApps, confirmedInstalls, storeListMembers } from "@/lib/db/schema";
 import { OUR_APPS } from "@/lib/partners-api";
 import { storeFiltersSchema } from "@/lib/filters";
 import { computeGaps, computeGapScore } from "@/lib/app-gaps";
@@ -55,6 +55,15 @@ export async function GET(request: NextRequest) {
 
   if (filters.hasEmail === true) {
     conditions.push(isNotNull(stores.contactEmail));
+  }
+
+  // List membership filter
+  if (filters.listId) {
+    const memberStoreIds = db
+      .select({ storeId: storeListMembers.storeId })
+      .from(storeListMembers)
+      .where(eq(storeListMembers.listId, filters.listId));
+    conditions.push(inArray(stores.id, memberStoreIds));
   }
 
   if (filters.search) {

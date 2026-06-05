@@ -15,6 +15,7 @@ export const storeFiltersSchema = z.object({
   missingAppCategory: z.string().optional(),
   minLeadScore: z.coerce.number().optional(),
   search: z.string().optional(),
+  listId: z.coerce.number().optional(), // filter to stores in a specific manual list
   sort: z.string().default("created_at"),
   order: z.enum(["asc", "desc"]).default("desc"),
   page: z.coerce.number().default(1),

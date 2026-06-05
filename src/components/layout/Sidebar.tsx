@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Store,
+  List,
   Mail,
   FileText,
   Search,
@@ -15,6 +16,7 @@ import {
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/stores", label: "Stores", icon: Store },
+  { href: "/lists", label: "Lists", icon: List },
   { href: "/campaigns", label: "Campaigns", icon: Mail },
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/scraper", label: "Scraper", icon: Bot },

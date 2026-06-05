@@ -33,6 +33,10 @@ import {
   ChevronUp,
   Zap,
   ScanLine,
+  Compass,
+  Globe,
+  Plus,
+  X,
 } from "lucide-react";
 
 // ---------- Types ----------
@@ -88,8 +92,20 @@ interface BatchResult {
       products: number;
     } | null;
   };
-  batchResults?: { url: string; valid: boolean; signals?: string[] }[];
+  batchResults?: { url: string; valid: boolean; signals?: string[]; isNew?: boolean }[];
   error?: string;
+  // Discover-specific
+  phase?: string;
+  currentApp?: string;
+  currentPage?: number;
+  merchantNames?: string[];
+  // Auto follow-up scan after discovery
+  followUpJobId?: number;
+  followUpTotal?: number;
+  newUrlsFound?: number;
+  totalCandidates?: number;
+  scrapeComplete?: boolean;
+  message?: string;
 }
 
 // ---------- Category labels ----------
@@ -218,8 +234,40 @@ function MultiSelect({
 
 // ---------- Main Component ----------
 
+// ---------- Discoverable Apps (client-side copy for UI) ----------
+
+const DISCOVERABLE_APPS = [
+  { slug: "judgeme", name: "Judge.me", category: "Reviews" },
+  { slug: "klaviyo-email-marketing", name: "Klaviyo", category: "Email Marketing" },
+  { slug: "privy", name: "Privy", category: "Pop-ups" },
+  { slug: "omnisend", name: "Omnisend", category: "Email Marketing" },
+  { slug: "smile-io", name: "Smile.io", category: "Loyalty" },
+  { slug: "loox", name: "Loox", category: "Reviews" },
+  { slug: "aftership-order-tracking", name: "AfterShip", category: "Shipping" },
+  { slug: "yotpo-social-reviews", name: "Yotpo", category: "Reviews" },
+  { slug: "pagefly", name: "PageFly", category: "Page Builders" },
+  { slug: "reconvert-upsell-cross-sell", name: "ReConvert", category: "Upsell" },
+  { slug: "shopify-email", name: "Shopify Email", category: "Email Marketing" },
+  { slug: "stamped-io", name: "Stamped", category: "Reviews" },
+  { slug: "vitals", name: "Vitals", category: "All-in-One" },
+  { slug: "seo-optimizer", name: "SEO Booster", category: "SEO" },
+  { slug: "gorgias", name: "Gorgias", category: "Chat & Support" },
+  { slug: "rebuy-personalization-engine", name: "Rebuy", category: "Upsell" },
+  { slug: "okendo", name: "Okendo", category: "Reviews" },
+  { slug: "attentive", name: "Attentive", category: "SMS Marketing" },
+  { slug: "postscript-sms-marketing", name: "Postscript", category: "SMS Marketing" },
+  { slug: "recharge", name: "Recharge", category: "Subscriptions" },
+];
+
+// Group by category for the UI
+const DISCOVER_CATEGORIES = DISCOVERABLE_APPS.reduce<Record<string, typeof DISCOVERABLE_APPS>>((acc, app) => {
+  if (!acc[app.category]) acc[app.category] = [];
+  acc[app.category].push(app);
+  return acc;
+}, {});
+
 export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
-  const [tab, setTab] = useState<"scan" | "import">("scan");
+  const [tab, setTab] = useState<"scan" | "import" | "discover">("scan");
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [apps, setApps] = useState<AppCategories>({});
   const [allApps, setAllApps] = useState<AppInfo[]>([]);
@@ -239,6 +287,17 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
 
   // Import
   const [importUrls, setImportUrls] = useState("");
+
+  // Discover
+  const [discoverApps, setDiscoverApps] = useState<string[]>(
+    DISCOVERABLE_APPS.map((a) => a.slug)
+  );
+  const [customApps, setCustomApps] = useState<{ slug: string; name: string }[]>([]);
+  const [customAppInput, setCustomAppInput] = useState("");
+  const [customAppError, setCustomAppError] = useState<string | null>(null);
+  const [pagesPerApp, setPagesPerApp] = useState(3);
+  const [maxStores, setMaxStores] = useState(200);
+  const [discoverPhase, setDiscoverPhase] = useState<"scrape" | "validate" | "scan">("scrape");
 
   // Active job
   const [activeJob, setActiveJob] = useState<{
@@ -298,40 +357,86 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
         });
         const data: BatchResult = await res.json();
 
-        const logEntry =
-          data.current
-            ? `${data.current.success ? "✓" : "✗"} ${data.current.url}${
-                data.current.result
-                  ? ` → ${data.current.result.name || "unnamed"}, ${data.current.result.apps} apps, ${data.current.result.email || "no email"}`
-                  : ""
-              }`
-            : data.batchResults
-              ? data.batchResults
-                  .map(
-                    (r) =>
-                      `${r.valid ? "✓" : "✗"} ${r.url} (${r.signals?.join(", ") || ""})`
-                  )
-                  .join("\n")
-              : data.error
-                ? `⚠ Error: ${data.error}`
-                : "";
+        // Build log entry based on job type
+        let logEntry = "";
+        if (data.phase === "scrape" && data.currentApp) {
+          // Discover scrape phase — show merchant names found
+          const namePreview = data.merchantNames && data.merchantNames.length > 0
+            ? ` → found: ${data.merchantNames.slice(0, 4).join(", ")}${data.merchantNames.length > 4 ? ` +${data.merchantNames.length - 4} more` : ""}`
+            : " → no merchants found";
+          logEntry = `🔍 ${data.currentApp} p${data.currentPage}${namePreview} (${data.newUrlsFound} candidates, ${data.totalCandidates} total)`;
+        } else if (data.scrapeComplete) {
+          logEntry = `✅ Scrape complete! ${data.totalCandidates} candidate URLs found. Starting validation...`;
+        } else if (data.current) {
+          logEntry = `${data.current.success ? "✓" : "✗"} ${data.current.url}${
+            data.current.result
+              ? ` → ${data.current.result.name || "unnamed"}, ${data.current.result.apps} apps, ${data.current.result.email || "no email"}`
+              : ""
+          }`;
+        } else if (data.batchResults) {
+          logEntry = data.batchResults
+            .map((r) => {
+              const prefix = r.valid ? (r.isNew === false ? "⊘" : "✓") : "✗";
+              return `${prefix} ${r.url} (${r.signals?.join(", ") || ""})`;
+            })
+            .join("\n");
+        } else if (data.message) {
+          logEntry = `ℹ ${data.message}`;
+        } else if (data.error) {
+          logEntry = `⚠ Error: ${data.error}`;
+        }
+
+        // Update discover phase tracking
+        if (data.phase) {
+          setDiscoverPhase(data.phase as "scrape" | "validate");
+        }
+
+        // Update total if transitioning phases
+        const newTotal = data.scrapeComplete ? (data.totalCandidates || total) : (data.total || total);
 
         setActiveJob((prev) =>
           prev
             ? {
                 ...prev,
                 processed: data.processed,
+                total: newTotal,
                 status: data.status,
                 updated: data.updated ?? data.discovered ?? prev.updated,
                 failed: data.failed ?? prev.failed,
                 log: logEntry
-                  ? [...prev.log.slice(-49), logEntry]
+                  ? [...prev.log.slice(-49), ...logEntry.split("\n")]
                   : prev.log,
               }
             : null
         );
 
-        if (data.status === "completed" || data.status === "completing") {
+        if ((data.status === "completed" || data.status === "completing") && data.followUpJobId) {
+          // Discovery finished — seamlessly transition to auto-scan
+          const scanTotal = data.followUpTotal || 0;
+          setDiscoverPhase("scan");
+          setActiveJob((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  id: data.followUpJobId!,
+                  processed: 0,
+                  total: scanTotal,
+                  status: "running",
+                  updated: 0,
+                  failed: 0,
+                  log: [
+                    ...prev.log,
+                    `\n📊 Phase 3: Auto-scanning ${scanTotal} discovered stores for apps, email, & details...`,
+                  ],
+                }
+              : null
+          );
+          pollingRef.current = setTimeout(
+            () => pollBatch(data.followUpJobId!, scanTotal),
+            500
+          );
+          refreshJobs();
+        } else if (data.status === "completed" || data.status === "completing") {
           // Job finished — refresh job list
           if (pollingRef.current) clearTimeout(pollingRef.current);
           setActiveJob((prev) =>
@@ -339,7 +444,7 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
           );
           refreshJobs();
         } else if (data.status === "running") {
-          pollingRef.current = setTimeout(() => pollBatch(jobId, total), 500);
+          pollingRef.current = setTimeout(() => pollBatch(jobId, newTotal), 500);
         }
       } catch (err) {
         console.error("Polling error:", err);
@@ -451,6 +556,118 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
     }
   };
 
+  // Add a custom app by URL or slug
+  const addCustomApp = () => {
+    const raw = customAppInput.trim();
+    if (!raw) return;
+
+    setCustomAppError(null);
+
+    // Parse slug from URL or raw slug
+    let slug = raw;
+    try {
+      if (raw.includes("apps.shopify.com")) {
+        const url = new URL(raw.startsWith("http") ? raw : `https://${raw}`);
+        // URL like https://apps.shopify.com/some-app or https://apps.shopify.com/some-app/reviews
+        const pathParts = url.pathname.split("/").filter(Boolean);
+        slug = pathParts[0] || "";
+      } else if (raw.includes("/")) {
+        // Could be a partial path like "apps.shopify.com/some-app"
+        const parts = raw.split("/").filter(Boolean);
+        slug = parts[parts.length - 1] || "";
+      }
+    } catch {
+      // Treat as raw slug
+    }
+
+    // Clean the slug
+    slug = slug.toLowerCase().replace(/[^a-z0-9-]/g, "");
+
+    if (!slug) {
+      setCustomAppError("Could not parse app slug from input");
+      return;
+    }
+
+    // Check if already exists in predefined list
+    if (DISCOVERABLE_APPS.some((a) => a.slug === slug)) {
+      setDiscoverApps((prev) => prev.includes(slug) ? prev : [...prev, slug]);
+      setCustomAppInput("");
+      setCustomAppError(`"${slug}" is already in the list — selected it for you`);
+      setTimeout(() => setCustomAppError(null), 3000);
+      return;
+    }
+
+    // Check if already in custom list
+    const finalSlug = slug; // capture for closure
+    setCustomApps((prev) => {
+      if (prev.some((a) => a.slug === finalSlug)) {
+        setCustomAppError(`"${finalSlug}" is already added`);
+        return prev;
+      }
+      // Derive a display name from the slug
+      const name = finalSlug
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      return [...prev, { slug: finalSlug, name }];
+    });
+
+    setDiscoverApps((prev) => prev.includes(finalSlug) ? prev : [...prev, finalSlug]);
+    setCustomAppInput("");
+  };
+
+  const removeCustomApp = (slug: string) => {
+    setCustomApps((prev) => prev.filter((a) => a.slug !== slug));
+    setDiscoverApps((prev) => prev.filter((s) => s !== slug));
+  };
+
+  // Start discover job
+  const startDiscover = async () => {
+    if (discoverApps.length === 0) {
+      alert("Please select at least one app to discover stores from.");
+      return;
+    }
+
+    setIsStarting(true);
+    setDiscoverPhase("scrape");
+    try {
+      const res = await fetch("/api/scraper/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "discover",
+          appSlugs: discoverApps,
+          pagesPerApp,
+          maxStores,
+          mode,
+        }),
+      });
+      const data = await res.json();
+
+      setActiveJob({
+        id: data.job.id,
+        total: data.totalTarget,
+        processed: 0,
+        status: "running",
+        log: [
+          `🚀 Discovering stores from ${discoverApps.length} app review pages (${pagesPerApp} pages each)...`,
+          `Phase 1: Scraping ${data.totalTarget} review pages for store URLs...`,
+        ],
+        updated: 0,
+        failed: 0,
+      });
+
+      pollingRef.current = setTimeout(
+        () => pollBatch(data.job.id, data.totalTarget),
+        200
+      );
+    } catch (err) {
+      alert("Failed to start discovery: " + err);
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
   // Stop job
   const stopJob = async () => {
     if (!activeJob) return;
@@ -498,6 +715,14 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
       {/* Tab selector */}
       <div className="flex gap-2">
         <Button
+          variant={tab === "discover" ? "default" : "outline"}
+          onClick={() => setTab("discover")}
+          className="gap-2"
+        >
+          <Compass className="h-4 w-4" />
+          Discover New
+        </Button>
+        <Button
           variant={tab === "scan" ? "default" : "outline"}
           onClick={() => setTab("scan")}
           className="gap-2"
@@ -514,6 +739,293 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
           Import URLs
         </Button>
       </div>
+
+      {/* ── Discover Tab ── */}
+      {tab === "discover" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Compass className="h-5 w-5" />
+              Discover New Stores
+            </CardTitle>
+            <CardDescription>
+              Find new Shopify stores by scraping app review pages on the Shopify
+              App Store. Stores that left reviews are extracted, validated, and
+              added to your database automatically.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* App selection */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <Label className="text-sm font-medium">
+                  Apps to scrape reviews from
+                </Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDiscoverApps([
+                        ...DISCOVERABLE_APPS.map((a) => a.slug),
+                        ...customApps.map((a) => a.slug),
+                      ])
+                    }
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDiscoverApps(customApps.map((a) => a.slug))
+                    }
+                    className="text-xs text-muted-foreground hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-4 max-h-64 overflow-y-auto">
+                {Object.entries(DISCOVER_CATEGORIES).map(([category, apps]) => (
+                  <div key={category}>
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        {category}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const slugs = apps.map((a) => a.slug);
+                          const allSelected = slugs.every((s) =>
+                            discoverApps.includes(s)
+                          );
+                          if (allSelected) {
+                            setDiscoverApps(
+                              discoverApps.filter((s) => !slugs.includes(s))
+                            );
+                          } else {
+                            setDiscoverApps([
+                              ...new Set([...discoverApps, ...slugs]),
+                            ]);
+                          }
+                        }}
+                        className="text-[10px] text-primary hover:underline"
+                      >
+                        {apps.every((a) => discoverApps.includes(a.slug))
+                          ? "deselect"
+                          : "select all"}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {apps.map((app) => {
+                        const selected = discoverApps.includes(app.slug);
+                        return (
+                          <button
+                            key={app.slug}
+                            type="button"
+                            onClick={() => {
+                              if (selected) {
+                                setDiscoverApps(
+                                  discoverApps.filter((s) => s !== app.slug)
+                                );
+                              } else {
+                                setDiscoverApps([...discoverApps, app.slug]);
+                              }
+                            }}
+                            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                              selected
+                                ? "border-primary bg-primary/10 text-primary font-medium"
+                                : "border-muted-foreground/20 text-muted-foreground hover:border-muted-foreground/40"
+                            }`}
+                          >
+                            {app.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Custom apps section */}
+                {customApps.length > 0 && (
+                  <div>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Custom
+                    </span>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {customApps.map((app) => (
+                        <span
+                          key={app.slug}
+                          className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+                        >
+                          {app.name}
+                          <button
+                            type="button"
+                            onClick={() => removeCustomApp(app.slug)}
+                            className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-200 dark:hover:bg-emerald-800"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Add custom app input */}
+              <div className="mt-2 flex items-start gap-2">
+                <div className="flex-1">
+                  <div className="flex gap-2">
+                    <Input
+                      value={customAppInput}
+                      onChange={(e) => {
+                        setCustomAppInput(e.target.value);
+                        setCustomAppError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCustomApp();
+                        }
+                      }}
+                      placeholder="https://apps.shopify.com/your-app  or  app-slug"
+                      className="text-sm h-8"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addCustomApp}
+                      disabled={!customAppInput.trim()}
+                      className="gap-1 shrink-0 h-8"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add
+                    </Button>
+                  </div>
+                  {customAppError && (
+                    <p className="mt-1 text-xs text-orange-600">{customAppError}</p>
+                  )}
+                </div>
+              </div>
+
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {discoverApps.length} apps selected
+                {customApps.length > 0 && (
+                  <span> ({customApps.length} custom)</span>
+                )}
+              </p>
+            </div>
+
+            {/* Settings row */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <Label className="mb-1.5 block text-sm font-medium">
+                  Pages per app
+                </Label>
+                <Input
+                  type="number"
+                  value={pagesPerApp}
+                  onChange={(e) =>
+                    setPagesPerApp(
+                      Math.max(1, Math.min(10, parseInt(e.target.value) || 1))
+                    )
+                  }
+                  min={1}
+                  max={10}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Each page has ~10 reviews
+                </p>
+              </div>
+
+              <div>
+                <Label className="mb-1.5 block text-sm font-medium">
+                  Max stores to validate
+                </Label>
+                <Input
+                  type="number"
+                  value={maxStores}
+                  onChange={(e) =>
+                    setMaxStores(
+                      Math.max(10, Math.min(1000, parseInt(e.target.value) || 200))
+                    )
+                  }
+                  min={10}
+                  max={1000}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Caps how many candidate URLs to validate
+                </p>
+              </div>
+
+              <div>
+                <Label className="mb-1.5 block text-sm font-medium">
+                  Scan Mode
+                </Label>
+                <Select value={mode} onValueChange={(v) => v && setMode(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="quick">
+                      Quick (validate only)
+                    </SelectItem>
+                    <SelectItem value="full">
+                      Full (validate + extract)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* How it works info */}
+            <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 dark:border-blue-900 dark:bg-blue-950/20">
+              <p className="text-xs text-blue-800 dark:text-blue-300">
+                <strong>How it works:</strong> Phase 1 scrapes Shopify App Store
+                review pages and extracts merchant names from reviews. These names
+                are converted into candidate .myshopify.com URLs. Phase 2 validates
+                each candidate by checking /products.json to confirm it&apos;s a real
+                Shopify store, then adds it to your database. Total review pages:{" "}
+                <strong>{discoverApps.length * pagesPerApp}</strong>
+              </p>
+            </div>
+
+            {/* Start button */}
+            <div className="flex items-center justify-between border-t pt-4">
+              <div className="text-sm text-muted-foreground">
+                Will scrape{" "}
+                <span className="font-semibold text-foreground">
+                  {discoverApps.length * pagesPerApp}
+                </span>{" "}
+                review pages, then validate up to{" "}
+                <span className="font-semibold text-foreground">
+                  {maxStores}
+                </span>{" "}
+                stores
+              </div>
+              <Button
+                onClick={startDiscover}
+                disabled={
+                  isStarting ||
+                  (activeJob !== null && activeJob.status === "running") ||
+                  discoverApps.length === 0
+                }
+                className="gap-2"
+              >
+                {isStarting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Globe className="h-4 w-4" />
+                )}
+                Start Discovery
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Scan Tab ── */}
       {tab === "scan" && (
@@ -786,10 +1298,18 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
                   <AlertCircle className="h-4 w-4 text-orange-500" />
                 )}
                 {activeJob.status === "running"
-                  ? "Scanning..."
+                  ? tab === "discover"
+                    ? discoverPhase === "scrape"
+                      ? "Discovering URLs..."
+                      : discoverPhase === "validate"
+                        ? "Validating Stores..."
+                        : "Scanning Stores..."
+                    : "Scanning..."
                   : activeJob.status === "completed"
-                    ? "Scan Complete"
-                    : "Scan Stopped"}
+                    ? tab === "discover"
+                      ? "Discovery Complete"
+                      : "Scan Complete"
+                    : "Stopped"}
               </CardTitle>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-muted-foreground">
@@ -839,18 +1359,52 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
                 <span className="text-muted-foreground">Progress: </span>
                 <span className="font-medium">{progress}%</span>
               </div>
-              <div>
-                <span className="text-muted-foreground">Updated: </span>
-                <span className="font-medium text-green-600">
-                  {activeJob.updated}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Failed: </span>
-                <span className="font-medium text-red-600">
-                  {activeJob.failed}
-                </span>
-              </div>
+              {tab === "discover" && discoverPhase === "scrape" ? (
+                <div>
+                  <span className="text-muted-foreground">Phase: </span>
+                  <span className="font-medium text-blue-600">
+                    Scraping review pages
+                  </span>
+                </div>
+              ) : tab === "discover" && discoverPhase === "scan" ? (
+                <>
+                  <div>
+                    <span className="text-muted-foreground">Phase: </span>
+                    <span className="font-medium text-purple-600">
+                      Scanning stores
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Updated: </span>
+                    <span className="font-medium text-green-600">
+                      {activeJob.updated}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Failed: </span>
+                    <span className="font-medium text-red-600">
+                      {activeJob.failed}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <span className="text-muted-foreground">
+                      {tab === "discover" || tab === "import" ? "Discovered: " : "Updated: "}
+                    </span>
+                    <span className="font-medium text-green-600">
+                      {activeJob.updated}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Failed: </span>
+                    <span className="font-medium text-red-600">
+                      {activeJob.failed}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Log */}
@@ -865,7 +1419,13 @@ export function ScraperClient({ initialJobs }: { initialJobs: Job[] }) {
                         ? "text-red-600"
                         : line.startsWith("⚠")
                           ? "text-orange-600"
-                          : "text-muted-foreground"
+                          : line.startsWith("⊘")
+                            ? "text-muted-foreground/70"
+                            : line.startsWith("🔍") || line.startsWith("🚀")
+                              ? "text-blue-600"
+                              : line.startsWith("✅")
+                                ? "text-green-600 font-medium"
+                                : "text-muted-foreground"
                   }
                 >
                   {line}
