@@ -35,7 +35,9 @@ import {
   Pencil,
   Trash2,
   Filter,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
 const LIST_COLORS = [
@@ -68,6 +70,8 @@ export function ListsClient() {
   const [showCreate, setShowCreate] = useState(false);
   const [editList, setEditList] = useState<StoreList | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<StoreList | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Form state
   const [formName, setFormName] = useState("");
@@ -93,54 +97,71 @@ export function ListsClient() {
 
   async function handleCreate() {
     if (!formName.trim()) return;
-
-    const res = await fetch("/api/lists", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: formName,
-        description: formDesc,
-        color: formColor,
-        type: "manual",
-      }),
-    });
-
-    if (res.ok) {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formName,
+          description: formDesc,
+          color: formColor,
+          type: "manual",
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("List created");
       setShowCreate(false);
       setFormName("");
       setFormDesc("");
       setFormColor("#6366f1");
       fetchLists();
+    } catch {
+      toast.error("Failed to create list");
+    } finally {
+      setSaving(false);
     }
   }
 
   async function handleUpdate() {
     if (!editList || !formName.trim()) return;
-
-    const res = await fetch(`/api/lists/${editList.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: formName,
-        description: formDesc,
-        color: formColor,
-      }),
-    });
-
-    if (res.ok) {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/lists/${editList.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formName,
+          description: formDesc,
+          color: formColor,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("List updated");
       setEditList(null);
       setFormName("");
       setFormDesc("");
       setFormColor("#6366f1");
       fetchLists();
+    } catch {
+      toast.error("Failed to update list");
+    } finally {
+      setSaving(false);
     }
   }
 
   async function handleDelete(list: StoreList) {
-    const res = await fetch(`/api/lists/${list.id}`, { method: "DELETE" });
-    if (res.ok) {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/lists/${list.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast.success("List deleted");
       setDeleteConfirm(null);
       fetchLists();
+    } catch {
+      toast.error("Failed to delete list");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -296,8 +317,15 @@ export function ListsClient() {
               <Button variant="outline" onClick={() => setShowCreate(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleCreate} disabled={!formName.trim()}>
-                Create List
+              <Button onClick={handleCreate} disabled={!formName.trim() || saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create List"
+                )}
               </Button>
             </div>
           </div>
@@ -351,8 +379,15 @@ export function ListsClient() {
               <Button variant="outline" onClick={() => setEditList(null)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpdate} disabled={!formName.trim()}>
-                Save Changes
+              <Button onClick={handleUpdate} disabled={!formName.trim() || saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
               </Button>
             </div>
           </div>
@@ -376,8 +411,16 @@ export function ListsClient() {
             <Button
               variant="destructive"
               onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
+              disabled={deleting}
             >
-              Delete
+              {deleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
             </Button>
           </div>
         </DialogContent>

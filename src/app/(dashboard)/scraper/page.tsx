@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { scrapeJobs } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
@@ -21,6 +22,7 @@ import { format } from "date-fns";
 import { ScraperClient } from "./scraper-client";
 import { PartnersSync } from "@/components/scraper/PartnersSync";
 
+export const metadata: Metadata = { title: "Scraper" };
 export const dynamic = "force-dynamic";
 
 export default async function ScraperPage() {

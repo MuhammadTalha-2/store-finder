@@ -19,7 +19,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { Campaign } from "@/lib/db/schema";
@@ -33,20 +40,38 @@ const statusColors: Record<string, "default" | "secondary" | "destructive" | "ou
 
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function fetchCampaigns() {
-    const res = await fetch("/api/campaigns");
-    setCampaigns(await res.json());
+    try {
+      const res = await fetch("/api/campaigns");
+      setCampaigns(await res.json());
+    } catch {
+      toast.error("Failed to load campaigns");
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     fetchCampaigns();
   }, []);
 
-  async function deleteCampaign(id: number) {
-    await fetch(`/api/campaigns/${id}`, { method: "DELETE" });
-    toast.success("Campaign deleted");
-    fetchCampaigns();
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/campaigns/${deleteTarget.id}`, { method: "DELETE" });
+      toast.success("Campaign deleted");
+      setDeleteTarget(null);
+      fetchCampaigns();
+    } catch {
+      toast.error("Failed to delete campaign");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -66,7 +91,11 @@ export default function CampaignsPage() {
         </Link>
       </div>
 
-      {campaigns.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : campaigns.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <p className="text-lg font-medium">No campaigns yet</p>
@@ -121,7 +150,7 @@ export default function CampaignsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => deleteCampaign(campaign.id)}
+                      onClick={() => setDeleteTarget(campaign)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -132,6 +161,38 @@ export default function CampaignsPage() {
           </Table>
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Campaign</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{deleteTarget?.name}&rdquo;?
+              This will also remove all recipient data for this campaign.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

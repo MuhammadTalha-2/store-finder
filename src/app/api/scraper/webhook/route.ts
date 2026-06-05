@@ -17,27 +17,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const data = webhookSchema.parse(body);
+  try {
+    const body = await request.json();
+    const data = webhookSchema.parse(body);
 
-  // Find the most recent "running" scrape job and mark it done
-  const [latestJob] = await db
-    .select({ id: scrapeJobs.id })
-    .from(scrapeJobs)
-    .where(eq(scrapeJobs.status, "running"))
-    .orderBy(desc(scrapeJobs.startedAt))
-    .limit(1);
+    // Find the most recent "running" scrape job and mark it done
+    const [latestJob] = await db
+      .select({ id: scrapeJobs.id })
+      .from(scrapeJobs)
+      .where(eq(scrapeJobs.status, "running"))
+      .orderBy(desc(scrapeJobs.startedAt))
+      .limit(1);
 
-  if (latestJob) {
-    await db
-      .update(scrapeJobs)
-      .set({
-        status: data.status,
-        completedAt: new Date(),
-        errorMessage: data.errorMessage,
-      })
-      .where(eq(scrapeJobs.id, latestJob.id));
+    if (latestJob) {
+      await db
+        .update(scrapeJobs)
+        .set({
+          status: data.status,
+          completedAt: new Date(),
+          errorMessage: data.errorMessage,
+        })
+        .where(eq(scrapeJobs.id, latestJob.id));
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid webhook payload", details: error.issues }, { status: 400 });
+    }
+    console.error("Error processing webhook:", error);
+    return NextResponse.json(
+      { error: "Failed to process webhook" },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ ok: true });
 }

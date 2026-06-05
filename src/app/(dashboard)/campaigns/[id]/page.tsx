@@ -19,7 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatsCard } from "@/components/layout/StatsCard";
-import { Send, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Send, CheckCircle, XCircle, Clock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { Campaign } from "@/lib/db/schema";
@@ -84,7 +84,13 @@ export default function CampaignDetailPage({
     setSending(false);
   }
 
-  if (!campaign) return <div className="p-6">Loading...</div>;
+  if (!campaign) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   const pending = campaign.recipients.filter(
     (r) => r.status === "pending"

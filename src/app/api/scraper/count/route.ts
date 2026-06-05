@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 
 // POST — Count stores matching filters (preview before running)
 export async function POST(request: NextRequest) {
+  try {
   const body = await request.json();
   const {
     target = "unscraped",
@@ -104,4 +105,11 @@ export async function POST(request: NextRequest) {
     .where(and(...conditions));
 
   return NextResponse.json({ count: result.count });
+  } catch (error) {
+    console.error("Error counting stores:", error);
+    return NextResponse.json(
+      { error: "Failed to count stores" },
+      { status: 500 }
+    );
+  }
 }

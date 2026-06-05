@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { stores, campaigns, scrapeJobs } from "@/lib/db/schema";
 import { count, eq, isNotNull, sql, desc } from "drizzle-orm";
@@ -21,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
+export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {

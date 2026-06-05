@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { stores, storeApps, knownApps } from "@/lib/db/schema";
 import { storeFiltersSchema } from "@/lib/filters";
 import { storesToCsv } from "@/lib/csv-export";
+import { z } from "zod";
 import {
   and,
   asc,
@@ -23,6 +24,7 @@ export const dynamic = "force-dynamic";
 const MAX_EXPORT_ROWS = 10000;
 
 export async function GET(request: NextRequest) {
+  try {
   const params = Object.fromEntries(request.nextUrl.searchParams);
   const filters = storeFiltersSchema.parse({ ...params, limit: MAX_EXPORT_ROWS, page: 1 });
 
@@ -128,4 +130,14 @@ export async function GET(request: NextRequest) {
       "Content-Disposition": `attachment; filename="store-finder-export-${date}.csv"`,
     },
   });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid request data", details: error.issues }, { status: 400 });
+    }
+    console.error("Error exporting stores:", error);
+    return NextResponse.json(
+      { error: "Failed to export stores" },
+      { status: 500 }
+    );
+  }
 }

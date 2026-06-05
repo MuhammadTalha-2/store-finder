@@ -5,6 +5,7 @@ import { OUR_APPS } from "@/lib/partners-api";
 import { storeFiltersSchema } from "@/lib/filters";
 import { computeGaps, computeGapScore } from "@/lib/app-gaps";
 import { computeLeadScore, type LeadScoreBreakdown } from "@/lib/lead-score";
+import { z } from "zod";
 import {
   and,
   asc,
@@ -25,6 +26,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  try {
   const params = Object.fromEntries(request.nextUrl.searchParams);
   const filters = storeFiltersSchema.parse(params);
 
@@ -329,4 +331,14 @@ export async function GET(request: NextRequest) {
     page: filters.page,
     totalPages: Math.ceil(totalCount / filters.limit),
   });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: "Invalid request data", details: error.issues }, { status: 400 });
+    }
+    console.error("Error fetching stores:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch stores" },
+      { status: 500 }
+    );
+  }
 }

@@ -7,26 +7,34 @@ export const dynamic = "force-dynamic";
 
 // GET — List all known apps grouped by category
 export async function GET() {
-  const apps = await db
-    .select({
-      slug: knownApps.slug,
-      name: knownApps.name,
-      category: knownApps.category,
-      isCompetitor: knownApps.isCompetitor,
-    })
-    .from(knownApps)
-    .orderBy(asc(knownApps.category), asc(knownApps.name));
+  try {
+    const apps = await db
+      .select({
+        slug: knownApps.slug,
+        name: knownApps.name,
+        category: knownApps.category,
+        isCompetitor: knownApps.isCompetitor,
+      })
+      .from(knownApps)
+      .orderBy(asc(knownApps.category), asc(knownApps.name));
 
-  // Group by category
-  const categories: Record<string, { slug: string; name: string; isCompetitor: boolean }[]> = {};
-  for (const app of apps) {
-    if (!categories[app.category]) categories[app.category] = [];
-    categories[app.category].push({
-      slug: app.slug,
-      name: app.name,
-      isCompetitor: app.isCompetitor,
-    });
+    // Group by category
+    const categories: Record<string, { slug: string; name: string; isCompetitor: boolean }[]> = {};
+    for (const app of apps) {
+      if (!categories[app.category]) categories[app.category] = [];
+      categories[app.category].push({
+        slug: app.slug,
+        name: app.name,
+        isCompetitor: app.isCompetitor,
+      });
+    }
+
+    return NextResponse.json({ apps, categories });
+  } catch (error) {
+    console.error("Error fetching apps:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch apps" },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ apps, categories });
 }

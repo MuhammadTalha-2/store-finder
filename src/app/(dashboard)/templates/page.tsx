@@ -16,10 +16,11 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { EmailTemplate } from "@/lib/db/schema";
 
@@ -39,6 +40,9 @@ export default function TemplatesPage() {
   const [editingTemplate, setEditingTemplate] = useState<EmailTemplate | null>(
     null
   );
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<EmailTemplate | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({
     name: "",
     subject: "",
@@ -76,30 +80,48 @@ export default function TemplatesPage() {
       return;
     }
 
-    if (editingTemplate) {
-      await fetch(`/api/templates/${editingTemplate.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      toast.success("Template updated");
-    } else {
-      await fetch("/api/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      toast.success("Template created");
+    setSaving(true);
+    try {
+      if (editingTemplate) {
+        const res = await fetch(`/api/templates/${editingTemplate.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) throw new Error();
+        toast.success("Template updated");
+      } else {
+        const res = await fetch("/api/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) throw new Error();
+        toast.success("Template created");
+      }
+      setDialogOpen(false);
+      fetchTemplates();
+    } catch {
+      toast.error("Failed to save template");
+    } finally {
+      setSaving(false);
     }
-
-    setDialogOpen(false);
-    fetchTemplates();
   }
 
-  async function handleDelete(id: number) {
-    await fetch(`/api/templates/${id}`, { method: "DELETE" });
-    toast.success("Template deleted");
-    fetchTemplates();
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/templates/${deleteTarget.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      toast.success("Template deleted");
+      setDeleteTarget(null);
+      fetchTemplates();
+    } catch {
+      toast.error("Failed to delete template");
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function insertVariable(variable: string) {
@@ -177,8 +199,17 @@ export default function TemplatesPage() {
                   className="font-mono text-sm"
                 />
               </div>
-              <Button onClick={handleSave} className="w-full">
-                {editingTemplate ? "Update Template" : "Create Template"}
+              <Button onClick={handleSave} className="w-full" disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : editingTemplate ? (
+                  "Update Template"
+                ) : (
+                  "Create Template"
+                )}
               </Button>
             </div>
           </DialogContent>
@@ -220,7 +251,7 @@ export default function TemplatesPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleDelete(template.id)}
+                    onClick={() => setDeleteTarget(template)}
                   >
                     <Trash2 className="mr-1 h-3 w-3" />
                     Delete
@@ -231,6 +262,38 @@ export default function TemplatesPage() {
           ))}
         </div>
       )}
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Template</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &ldquo;{deleteTarget?.name}&rdquo;?
+              Campaigns using this template will keep their existing content.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-4">
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

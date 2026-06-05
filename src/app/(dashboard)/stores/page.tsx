@@ -1,8 +1,10 @@
+import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { knownApps, stores } from "@/lib/db/schema";
 import { sql, eq } from "drizzle-orm";
 import { StoresClient } from "./stores-client";
 
+export const metadata: Metadata = { title: "Stores" };
 export const dynamic = "force-dynamic";
 
 export default async function StoresPage() {

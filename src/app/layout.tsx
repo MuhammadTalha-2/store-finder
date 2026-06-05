@@ -15,7 +15,10 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Store Finder — Inshalytics",
+  title: {
+    default: "Store Finder — Inshalytics",
+    template: "%s — Inshalytics",
+  },
   description: "Discover and filter Shopify stores for marketing outreach",
 };
 
